@@ -66,14 +66,5 @@ This process helps bridge the gap between human-readable Gherkin specifications 
 
 Currently, the script uses hardcoded file paths for:
 
-*   `TRAINING_DATA_FILE`: Path to your JSON training data.
-*   `DEFAULT_XML_FILE`: Path to your XML mapping file.
 *   `DEFAULT_CSV_OUTPUT`: The name of the output CSV file (will be created in the directory where the script is run).
 *   `MODEL_FILE`, `VECTORIZER_FILE`, `LABEL_ENCODER_FILE`: Names for the saved ML model components (will be created in the script's directory).
-
-You **must** update the paths for `TRAINING_DATA_FILE` and `DEFAULT_XML_FILE` within the script to point to your actual files before running it.
-
-```python
-# Example: Update these paths in the script
-TRAINING_DATA_FILE = r"path/to/your/training_data.json"
-DEFAULT_XML_FILE = r"path/to/your/Mapping.xml"
