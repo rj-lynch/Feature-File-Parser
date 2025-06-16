@@ -19,9 +19,7 @@ from typing import List, Dict, Tuple, Any, Optional, Union
 MODEL_FILE = 'signal_prediction_model.pkl'
 VECTORIZER_FILE = 'tfidf_vectorizer.pkl'
 LABEL_ENCODER_FILE = 'label_encoder.pkl'
-TRAINING_DATA_FILE = r"C:\Users\RLYNCH39\Desktop\Dissertation\training_data.json" # Manually labelled data using old requirements
-# Default XML mapping file path - Consider making this configurable via UI or command line
-DEFAULT_XML_FILE = r"C:\Users\RLYNCH39\Downloads\Mapping.BE672F86-DAE9-4A56-8C8D-5A34762EC14F.xml"
+# Default name for .csv file
 DEFAULT_CSV_OUTPUT = "gherkin_steps_with_paths.csv"
 
 # Regular expressions for extracting value and latency
@@ -34,7 +32,7 @@ XIL_NAMESPACE = "http://www.asam.net/XIL/Mapping/2.2.0"
 NAMESPACES = {'ns0': XIL_NAMESPACE}
 
 # Define possible step keywords for easier processing
-STEP_KEYWORDS = ['Given', 'When', 'Then', 'And', 'But']
+STEP_KEYWORDS = ['Given', 'When', 'Then', 'And']
 
 
 # --- ML Model Functions ---
@@ -172,7 +170,19 @@ def load_model_components(model_file: str, vectorizer_file: str, label_encoder_f
         print(f"An unexpected error occurred loading model components: {e}")
         return None
 
-# --- File Selection ---
+# --- .json file Selection ---
+
+def select_json_file():
+    """Opens a file dialog to select XML file."""
+    root = tk.Tk()
+    root.withdraw()  # Hide the main window
+    json_path = filedialog.askopenfilename(
+        title="Select .json file",
+        filetypes=[("json files", "*.json"), ("All files", "*.*")]
+    )
+    return json_path
+
+# --- .feature file Selection ---
 
 def select_feature_files() -> List[str]:
     """Opens a file dialog to select .feature files."""
@@ -183,6 +193,18 @@ def select_feature_files() -> List[str]:
         filetypes=[("Feature files", "*.feature"), ("All files", "*.*")]
     )
     return list(file_paths) # Return list (can be empty)
+
+# --- .xml file Selection ---
+
+def select_xml_file():
+    """Opens a file dialog to select XML file."""
+    root = tk.Tk()
+    root.withdraw()  # Hide the main window
+    xml_path = filedialog.askopenfilename(
+        title="Select .xml file",
+        filetypes=[("xml files", "*.xml"), ("All files", "*.*")]
+    )
+    return xml_path
 
 # --- Gherkin Parsing ---
 
@@ -546,8 +568,13 @@ def main():
     """Main function to orchestrate the parsing, mapping, and writing process."""
 
     # --- 1. Load Training Data ---
+    training_data_file = select_json_file()
+    if not training_data_file:
+        print("No .json file selected. Exiting.")
+        return
+    
     print("Loading training data...")
-    training_data = load_training_data(TRAINING_DATA_FILE)
+    training_data = load_training_data(training_data_file)
     if not training_data:
         print("Exiting: Could not load training data.")
         return # Cannot proceed without training data for model/fuzzy matching
@@ -572,10 +599,14 @@ def main():
     if not feature_files:
         print("No .feature files selected. Exiting.")
         return
+    
+    xml_file = select_xml_file()
+    if not xml_file:
+        print("No .xml file selected. Exiting.")
+        return
 
     # --- 4. Specify XML Mapping File ---
     # Using the default hardcoded path. Consider adding a file dialog here too if needed.
-    xml_file = DEFAULT_XML_FILE
     if not os.path.exists(xml_file):
         print(f"Error: Specified XML mapping file not found at {xml_file}. Cannot perform mapping.")
         # The mapping function will handle the missing XML file gracefully by returning None.
