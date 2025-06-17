@@ -72,8 +72,12 @@ def train_and_save_model(data: List[Dict[str, str]], model_file: str, vectorizer
              print("Error: Training data file is empty or missing required columns.")
              return
 
-        vectorizer = TfidfVectorizer()
-        features = vectorizer.fit_transform(df['sentence'])
+        vectorizer = TfidfVectorizer(
+        ngram_range=(1, 2),      # Use unigrams and bigrams
+        stop_words='english',    # Remove common English stopwords
+        lowercase=True           # Convert all text to lowercase
+        )
+        features = vectorizer.fit_transform([item['sentence'] for item in data])
 
         label_encoder = LabelEncoder()
         labels = label_encoder.fit_transform(df['label'])
