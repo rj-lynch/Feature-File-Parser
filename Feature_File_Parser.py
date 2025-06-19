@@ -73,7 +73,7 @@ def train_and_save_model(data: List[Dict[str, str]], model_file: str, vectorizer
              return
 
         vectorizer = TfidfVectorizer(
-        ngram_range=(1, 2),      # Use unigrams and bigrams
+        ngram_range=(1,2,3),      # Use unigrams, bigrams and trigrams
         stop_words='english',    # Remove common English stopwords
         lowercase=True           # Convert all text to lowercase
         )
@@ -209,6 +209,37 @@ def select_xml_file():
         filetypes=[("xml files", "*.xml"), ("All files", "*.*")]
     )
     return xml_path
+
+import xml.etree.ElementTree as ET
+
+def get_xml_labels(xml_file: str) -> list:
+    """Extracts all LabelId values from the XML file."""
+    try:
+        tree = ET.parse(xml_file)
+        root = tree.getroot()
+        labels = [elem.attrib['Id'] for elem in root.findall('.//ns0:FrameworkLabel', NAMESPACES)]
+        return labels
+    except Exception as e:
+        print(f"Error parsing XML: {e}")
+        return []
+
+def fuzzy_search_xml_labels(step_text: str, xml_labels: list, fuzzy_threshold: int = 1) -> Optional[str]:
+    """Fuzzy matches step_text to XML LabelIds, using lowercased comparison but returning the original label."""
+    if not xml_labels:
+        return None
+
+    # Lowercase all XML labels for comparison
+    xml_labels_lower = [str(label).lower() for label in xml_labels]
+    step_text_lower = step_text.lower()
+
+    # Fuzzy match using lowercased values
+    result = process.extractOne(step_text_lower, xml_labels_lower, scorer=fuzz.ratio)
+    if result:
+        match, score = result
+        if score >= fuzzy_threshold:
+            idx = xml_labels_lower.index(match)
+            return xml_labels[idx]  # Return the original label
+    return None
 
 # --- Gherkin Parsing ---
 
@@ -359,115 +390,34 @@ def find_testbench_label_in_xml(xml_file: str, framework_label_id: str) -> Optio
 def find_label_mapping_with_model(
     xml_file: str,
     step_text: str,
-    training_data: List[Dict[str, str]],
-    model: Optional[SGDClassifier], # Model can be None
-    vectorizer: Optional[TfidfVectorizer], # Vectorizer can be None
-    label_encoder: Optional[LabelEncoder], # LabelEncoder can be None
-    fuzzy_threshold: int = 0.1
+    model: Optional[SGDClassifier],  # Model can be None
+    vectorizer: Optional[TfidfVectorizer],  # Vectorizer can be None
+    label_encoder: Optional[LabelEncoder],  # LabelEncoder can be None
+    fuzzy_threshold: int = 80  # Increased threshold for better accuracy
 ) -> Optional[str]:
     """
-    Finds the corresponding Testbench variable path using fuzzy matching or ML model prediction.
+    Finds the corresponding Testbench variable path using fuzzy matching on XML or ML model prediction.
     Returns the TestbenchLabelReference LabelId from the XML or None.
     """
-    # If XML file doesn't exist, no mapping is possible via XML lookup
-    if not os.path.exists(xml_file):
-        # Error message is printed in main, just return None
-        return None
+    # 1. Fuzzy Search on XML LabelIds
+    step_text_lower=step_text.lower()
+    xml_labels = get_xml_labels(xml_file)
+    label = fuzzy_search_xml_labels(step_text_lower, xml_labels, fuzzy_threshold)
+    if label:
+        print(f"Fuzzy XML match: {label}")
+        return label
 
-    predicted_label: Optional[str] = None
-    match_source = "None" # For logging purpose
+    # 2. ML fallback (predict and check if in XML)
+    if model and vectorizer and label_encoder:
+        X = vectorizer.transform([step_text_lower])
+        y_pred = model.predict(X)
+        predicted_label = label_encoder.inverse_transform(y_pred)[0]
+        if predicted_label in xml_labels:
+            print(f"ML match: {predicted_label}")
+            return predicted_label
 
-    # 1. Fuzzy Search on training data sentences
-    training_sentences = [item['sentence'] for item in training_data]
-    if training_sentences: # Ensure there are sentences to compare against
-        best_match = process.extractOne(
-            step_text,
-            training_sentences,
-            scorer=fuzz.ratio
-        )
-
-        if best_match and best_match[1] >= fuzzy_threshold:
-            matched_sentence = best_match[0]
-            # Find the corresponding label in the training data
-            for item in training_data:
-                if item['sentence'] == matched_sentence:
-                    predicted_label = item['label']
-                    match_source = f"Fuzzy (Score: {best_match[1]})"
-                    break # Found the label, exit the loop
-            # If loop finishes without finding label (shouldn't happen if matched_sentence came from data)
-            if predicted_label is None:
-                 print(f"Warning: Fuzzy matched sentence '{matched_sentence}' but couldn't find its label in training data.")
-    else:
-         # This warning is already printed in main if training data is empty
-         pass #print("Warning: No training sentences available for fuzzy matching.")
-
-
-    # 2. Model Prediction (if no good fuzzy match and model/components are available)
-    if predicted_label is None and model is not None and vectorizer is not None and label_encoder is not None:
-        try:
-            # Transform the step text using the *trained* vectorizer
-            step_features = vectorizer.transform([step_text]) # Pass the step_text as a list
-
-            # Predict the label using the trained model
-            # Need to handle cases where prediction might fail (e.g., unseen features)
-            # Check if the vectorizer produced any features
-            if step_features.shape[1] > 0:
-                 predicted_label_encoded = model.predict(step_features)[0] # Get the predicted numerical label
-                 # Convert the numerical label back to the original string label
-                 predicted_label = label_encoder.inverse_transform([predicted_label_encoded])[0]
-                 match_source = "Model Prediction"
-            else:
-                 # print(f"Warning: Vectorizer produced no features for step '{step_text}'. Cannot predict label.")
-                 predicted_label = None # Ensure label is None if prediction fails
-
-        except Exception as e:
-            print(f"Error during model prediction for step '{step_text}': {e}")
-            predicted_label = None # Ensure label is None if prediction fails
-
-
-    if predicted_label:
-        # 3. Find the TestbenchLabelReference LabelId in the XML file using the determined label
-        # Assuming the predicted_label is the start of the FrameworkLabel Id as per original code
-        # We need to find the *exact* FrameworkLabel Id in the XML that starts with predicted_label
-        framework_label_id_from_xml: Optional[str] = None
-        try:
-            tree = ET.parse(xml_file)
-            root = tree.getroot()
-            for label in root.findall(".//ns0:FrameworkLabel", NAMESPACES):
-                 # Find the first FrameworkLabel whose ID starts with the predicted label
-                 if label.get("Id") is not None and label.get("Id").startswith(predicted_label):
-                     framework_label_id_from_xml = label.get("Id")
-                     break # Found the corresponding FrameworkLabel ID in XML
-
-            if framework_label_id_from_xml:
-                 testbench_label_id = find_testbench_label_in_xml(xml_file, framework_label_id_from_xml)
-                 if testbench_label_id:
-                      # print(f"'{step_text}' -> {match_source} Label: '{predicted_label}' (XML Framework ID: '{framework_label_id_from_xml}') -> XML Testbench ID: '{testbench_label_id}'")
-                      return testbench_label_id
-                 else:
-                      print(f"'{step_text}' -> {match_source} Label: '{predicted_label}' (XML Framework ID: '{framework_label_id_from_xml}') -> No Testbench Mapping found in XML.")
-                      return None
-            else:
-                print(f"'{step_text}' -> {match_source} Label: '{predicted_label}' -> No matching FrameworkLabel found in XML starting with '{predicted_label}'.")
-                return None
-
-        except FileNotFoundError:
-             # This case should be caught by the initial os.path.exists check
-             # but included for robustness in nested calls.
-             print(f"Error: XML file '{xml_file}' not found during final lookup for '{step_text}'.")
-             return None
-        except ET.ParseError as e:
-             print(f"Error: Could not parse XML file '{xml_file}' during final lookup for '{step_text}': {e}")
-             return None
-        except Exception as e:
-             print(f"An unexpected error occurred during final XML lookup for '{step_text}': {e}")
-             return None
-
-    else:
-        # No fuzzy match and no model prediction (or model/data missing)
-        # print(f"'{step_text}' -> No confident fuzzy match or model prediction found.") # Too verbose
-        return None
-
+    print("No match found")
+    return None
 
 # --- CSV Writing ---
 
@@ -529,7 +479,6 @@ def write_steps_to_csv(
                             variable_path_full = find_label_mapping_with_model(
                                 xml_file,
                                 step_text,
-                                training_data,
                                 model,
                                 vectorizer,
                                 label_encoder
