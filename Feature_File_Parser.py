@@ -29,7 +29,10 @@ LATENCY_REGEX = re.compile(r"latency\s*=\s*(\S+)", re.IGNORECASE)
 
 # XML Namespace for parsing
 XIL_NAMESPACE = "http://www.asam.net/XIL/Mapping/2.2.0"
-NAMESPACES = {'ns0': XIL_NAMESPACE}
+# IMPORTANT: Ensure this matches the actual namespace URI from your XML.
+# If your XML elements (FrameworkLabel, TestbenchLabel) do NOT have a namespace prefix (e.g., <FrameworkLabel>),
+# then set NAMESPACES = {} and remove all 'ns0:' prefixes from the XPath queries below.
+NAMESPACES = {'ns0': XIL_NAMESPACE} 
 
 # Define possible step keywords for easier processing
 STEP_KEYWORDS = ['Given', 'When', 'Then', 'And']
@@ -210,37 +213,6 @@ def select_xml_file():
     )
     return xml_path
 
-import xml.etree.ElementTree as ET
-
-def get_xml_labels(xml_file: str) -> list:
-    """Extracts all LabelId values from the XML file."""
-    try:
-        tree = ET.parse(xml_file)
-        root = tree.getroot()
-        labels = [elem.attrib['Id'] for elem in root.findall('.//ns0:FrameworkLabel', NAMESPACES)]
-        return labels
-    except Exception as e:
-        print(f"Error parsing XML: {e}")
-        return []
-
-def fuzzy_search_xml_labels(step_text: str, xml_labels: list, fuzzy_threshold: int = 1) -> Optional[str]:
-    """Fuzzy matches step_text to XML LabelIds, using lowercased comparison but returning the original label."""
-    if not xml_labels:
-        return None
-
-    # Lowercase all XML labels for comparison
-    xml_labels_lower = [str(label).lower() for label in xml_labels]
-    step_text_lower = step_text.lower()
-
-    # Fuzzy match using lowercased values
-    result = process.extractOne(step_text_lower, xml_labels_lower, scorer=fuzz.ratio)
-    if result:
-        match, score = result
-        if score >= fuzzy_threshold:
-            idx = xml_labels_lower.index(match)
-            return xml_labels[idx]  # Return the original label
-    return None
-
 # --- Gherkin Parsing ---
 
 def parse_feature_file(filename: str) -> Dict[str, List[Tuple[str, str, Optional[str], Optional[str]]]]:
@@ -336,54 +308,70 @@ def parse_feature_file(filename: str) -> Dict[str, List[Tuple[str, str, Optional
 
     return scenario_steps
 
-# --- XML Lookup ---
-
-def find_testbench_label_in_xml(xml_file: str, framework_label_id: str) -> Optional[str]:
-    """
-    Finds the corresponding TestbenchLabelReference LabelId in the XML file
-    based on a given FrameworkLabel Id.
-    """
+# --- XML Lookup Functions ---
+def get_xml_labels(xml_file: str) -> List[str]:
+    """Extracts all LabelId values from FrameworkLabel elements in the XML file."""
     try:
-        # Check if the XML file exists before attempting to parse
-        if not os.path.exists(xml_file):
-             # Error is already printed in main, just return None
-             return None
-
         tree = ET.parse(xml_file)
         root = tree.getroot()
-
-        # Find the LabelMapping that references this FrameworkLabel Id
-        label_mapping_list = root.find(".//ns0:LabelMappingList", NAMESPACES)
-        if label_mapping_list is None:
-            # print(f"Warning: No LabelMappingList found in the XML file '{xml_file}'.")
-            return None # Not necessarily an error, just means no mappings exist
-
-        label_mappings = label_mapping_list.findall("./ns0:LabelMapping", NAMESPACES)
-
-        for mapping in label_mappings:
-            framework_label_reference = mapping.find("ns0:FrameworkLabelReference", NAMESPACES)
-            # Check if the FrameworkLabelReference exists and its LabelId matches
-            if framework_label_reference is not None and framework_label_reference.get("LabelId") == framework_label_id:
-                # Found the matching LabelMapping! Now get the TestbenchLabelReference
-                testbench_label_reference = mapping.find("ns0:TestbenchLabelReference", NAMESPACES)
-                if testbench_label_reference is not None:
-                    return testbench_label_reference.get("LabelId") # Return the TestbenchLabelReference LabelId
-                else:
-                    print(f"Warning: No <TestbenchLabelReference> found for FrameworkLabel '{framework_label_id}' in XML.")
-                    return None # Mapping exists but points nowhere testbench-wise
-
-        # If loop finishes, no mapping was found for the given framework_label_id
-        # print(f"Warning: Could not find <LabelMapping> for FrameworkLabel '{framework_label_id}' in XML.")
-        return None
-
+        # Ensure the XPath matches your namespace prefix and element name
+        labels = [elem.attrib['Id'] for elem in root.findall('.//ns0:FrameworkLabel', NAMESPACES)]
+        return labels
+    except FileNotFoundError:
+        print(f"Error: XML file not found at '{xml_file}'")
+        return []
     except ET.ParseError as e:
-        # Error is already printed in main or find_label_mapping_with_model if file is missing
-        print(f"Error: Could not parse XML file '{xml_file}' during lookup: {e}")
-        return None
+        print(f"Error parsing XML file '{xml_file}': {e}")
+        return []
     except Exception as e:
-        print(f"An unexpected error occurred during XML lookup: {e}")
+        print(f"An unexpected error occurred in get_xml_labels: {e}")
+        return []
+
+# NEW FUNCTION: To get all TestbenchLabel IDs
+def get_all_testbench_label_ids(xml_file: str) -> List[str]:
+    """Extracts all Id values from TestbenchLabel elements in the XML file."""
+    try:
+        tree = ET.parse(xml_file)
+        root = tree.getroot()
+        # Find all TestbenchLabel elements, assuming they are also namespaced
+        labels = [elem.attrib['Id'] for elem in root.findall('.//ns0:TestbenchLabel', NAMESPACES)]
+        return labels
+    except FileNotFoundError:
+        print(f"Error: XML file not found at '{xml_file}'")
+        return []
+    except ET.ParseError as e:
+        print(f"Error parsing XML file '{xml_file}': {e}")
+        return []
+    except Exception as e:
+        print(f"An unexpected error occurred in get_all_testbench_label_ids: {e}")
+        return []
+
+def fuzzy_search_xml_labels(search_text: str, target_labels: List[str], fuzzy_threshold: int = 75) -> Optional[str]:
+    """
+    Fuzzy matches search_text to a list of target_labels, using lowercased comparison
+    but returning the original label.
+    """
+    if not target_labels:
         return None
 
+    target_labels_lower = [str(label).lower() for label in target_labels]
+    search_text_lower = search_text.lower()
+
+    # Using fuzz.token_set_ratio is often better for phrases as it handles word order and extra words
+    result = process.extractOne(search_text_lower, target_labels_lower, scorer=fuzz.token_set_ratio)
+    
+    if result:
+        match_lower, score = result
+        if score >= fuzzy_threshold:
+            # Find the original label from the target_labels list
+            try:
+                idx = target_labels_lower.index(match_lower)
+                return target_labels[idx]  # Return the original, case-preserved label
+            except ValueError:
+                # This should ideally not happen if match_lower came from target_labels_lower
+                print(f"Warning: Fuzzy match '{match_lower}' not found in original lowercased list.")
+                return None
+    return None
 
 # --- Mapping Logic (Fuzzy + Model) ---
 
@@ -393,30 +381,90 @@ def find_label_mapping_with_model(
     model: Optional[SGDClassifier],  # Model can be None
     vectorizer: Optional[TfidfVectorizer],  # Vectorizer can be None
     label_encoder: Optional[LabelEncoder],  # LabelEncoder can be None
-    fuzzy_threshold: int = 80  # Increased threshold for better accuracy
+    framework_fuzzy_threshold: int = 75 # Threshold for step_text to FrameworkLabel
 ) -> Optional[str]:
     """
-    Finds the corresponding Testbench variable path using fuzzy matching on XML or ML model prediction.
-    Returns the TestbenchLabelReference LabelId from the XML or None.
+    Finds the corresponding Testbench variable path.
+    First, identifies a FrameworkLabel using fuzzy/ML on step_text.
+    Then, finds a matching TestbenchLabel using the identified FrameworkLabel ID
+    by performing a second fuzzy match against all TestbenchLabels.
+    Returns the TestbenchLabel Id or None.
     """
-    # 1. Fuzzy Search on XML LabelIds
-    step_text_lower=step_text.lower()
-    xml_labels = get_xml_labels(xml_file)
-    label = fuzzy_search_xml_labels(step_text_lower, xml_labels, fuzzy_threshold)
-    if label:
-        print(f"Fuzzy XML match: {label}")
-        return label
+    step_text_lower = step_text.lower()
+    print(f"\n[DEBUG] Processing step_text: '{step_text}' (lowercase: '{step_text_lower}')")
+    
+    # 1. Get all FrameworkLabels from XML (potential "source" IDs for the first stage)
+    framework_labels_from_xml = get_xml_labels(xml_file)
+    print(f"[DEBUG] Extracted FrameworkLabels from XML: {framework_labels_from_xml}")
 
-    # 2. ML fallback (predict and check if in XML)
-    if model and vectorizer and label_encoder:
-        X = vectorizer.transform([step_text_lower])
-        y_pred = model.predict(X)
-        predicted_label = label_encoder.inverse_transform(y_pred)[0]
-        if predicted_label in xml_labels:
-            print(f"ML match: {predicted_label}")
-            return predicted_label
+    # 2. Get all TestbenchLabels from XML (potential "target" IDs for the second stage)
+    all_testbench_labels_from_xml = get_all_testbench_label_ids(xml_file)
+    print(f"[DEBUG] Extracted TestbenchLabels from XML: {all_testbench_labels_from_xml}")
 
-    print("No match found")
+    if not framework_labels_from_xml or not all_testbench_labels_from_xml:
+        print("[DEBUG] Insufficient labels found in XML for mapping. Check XML file contents.")
+        return None
+
+    identified_framework_label: Optional[str] = None
+
+    # --- First Stage: Identify FrameworkLabel from step_text ---
+    # Try fuzzy search for FrameworkLabel
+    fuzzy_result_fw = fuzzy_search_xml_labels(
+        step_text_lower,
+        framework_labels_from_xml,
+        framework_fuzzy_threshold
+    )
+    
+    if fuzzy_result_fw:
+        identified_framework_label = fuzzy_result_fw
+        print(f"[DEBUG] Fuzzy match found for FrameworkLabel: {identified_framework_label}")
+    
+    # If no fuzzy match, try ML prediction for FrameworkLabel
+    if not identified_framework_label and model and vectorizer and label_encoder:
+        # Check if the model has been fitted and has classes (prevents errors with dummy models for single-class data)
+        if hasattr(model, 'predict') and hasattr(label_encoder, 'inverse_transform') and len(label_encoder.classes_) > 0:
+            try:
+                X = vectorizer.transform([step_text_lower])
+                y_pred = model.predict(X)
+                predicted_label = label_encoder.inverse_transform(y_pred)[0]
+                
+                if predicted_label in framework_labels_from_xml: # Ensure ML predicted label is actually in XML
+                    identified_framework_label = predicted_label
+                    print(f"[DEBUG] ML predicted FrameworkLabel: {identified_framework_label}")
+                else:
+                    print(f"[DEBUG] ML predicted label '{predicted_label}' not found in XML FrameworkLabels.")
+            except Exception as e:
+                print(f"Error during ML prediction for FrameworkLabel: {e}")
+        else:
+            print("[DEBUG] ML model/encoder not fully initialized or not suitable for prediction for FrameworkLabel. Skipping ML lookup.")
+
+    if not identified_framework_label:
+        print("[DEBUG] No FrameworkLabel identified from step_text via fuzzy or ML. Cannot proceed to TestbenchLabel lookup.")
+        return None
+
+    # --- Second Stage: Find corresponding TestbenchLabel using identified_framework_label ---
+    print(f"[DEBUG] Attempting to find TestbenchLabel for identified FrameworkLabel: '{identified_framework_label}'")
+
+    # Use fuzz.partial_ratio for this second fuzzy match
+    # because the FrameworkLabel ID appears to be a substring of the TestbenchLabel ID.
+    # Set a high threshold for this match, as it should be a strong semantic link.
+    testbench_fuzzy_threshold = 90 # Adjust this based on how strong the match should be
+
+    # Perform partial fuzzy matching using the identified FrameworkLabel against all TestbenchLabels
+    final_testbench_label = fuzzy_search_xml_labels(
+        identified_framework_label, # Use the identified FrameworkLabel as the search text
+        all_testbench_labels_from_xml, # Search within all TestbenchLabels
+        testbench_fuzzy_threshold,
+        scorer=fuzz.partial_ratio # Use partial_ratio for substring matching
+    )
+
+    if final_testbench_label:
+        print(f"[DEBUG] Found matching TestbenchLabel: {final_testbench_label}")
+        return final_testbench_label
+    else:
+        print(f"[DEBUG] No matching TestbenchLabel found for FrameworkLabel '{identified_framework_label}'.")
+
+    print(f"[DEBUG] No matching TestbenchLabel found for step: '{step_text}' after all attempts.")
     return None
 
 # --- CSV Writing ---
@@ -476,6 +524,7 @@ def write_steps_to_csv(
                     if step_text: # Only attempt mapping if there is step text
                          # Only attempt mapping if the XML file exists
                          if os.path.exists(xml_file):
+                            # This will now return the TestbenchLabel ID
                             variable_path_full = find_label_mapping_with_model(
                                 xml_file,
                                 step_text,
