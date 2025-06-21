@@ -251,7 +251,7 @@ def parse_feature_file(filename: str) -> Dict[str, List[Tuple[str, str, Optional
                      step_sequence_counter = 0
                      continue
 
-                # Check for step lines (Given, When, Then, And, But)
+                # Check for step lines (Given, When, Then, And)
                 step_match = re.match(r'(' + '|'.join(STEP_KEYWORDS) + r')\s+(.*)', stripped_line)
 
                 if step_match:
@@ -274,16 +274,15 @@ def parse_feature_file(filename: str) -> Dict[str, List[Tuple[str, str, Optional
                         current_step_context = step_keyword # Set new context
                         step_sequence_counter = 1 # Start counter for this context
                         step_type = f"{step_keyword}_{step_sequence_counter}"
-                    elif step_keyword in ['And', 'But']:
+                    elif step_keyword in 'And':
                          if current_step_context:
                               step_sequence_counter += 1 # Increment counter within current context
                               # Use the last seen main keyword for 'And'/'But'
                               step_type = f"{current_step_context}_{step_sequence_counter}"
                          else:
-                              # Handle 'And' or 'But' without a preceding Given/When/Then
+                              # Handle 'And' without a preceding Given/When/Then
                               step_type = f"{step_keyword}_1" # Treat as the first step of its kind
                               print(f"Warning: '{step_keyword}' step found without preceding Given/When/Then in {filename} line {line_number}. Treating as first step.")
-                              # Optionally, set the context here if you want subsequent 'And'/'But's to attach
                               # current_step_context = step_keyword
                               # step_sequence_counter = 1 # Reset counter for this new context
                     else:
@@ -315,8 +314,8 @@ def get_xml_labels(xml_file: str) -> List[str]:
         tree = ET.parse(xml_file)
         root = tree.getroot()
         # Ensure the XPath matches your namespace prefix and element name
-        labels = [elem.attrib['Id'] for elem in root.findall('.//ns0:FrameworkLabel', NAMESPACES)]
-        return labels
+        labelids = [elem.attrib['Id'] for elem in root.findall('.//ns0:FrameworkLabel', NAMESPACES)]
+        return labelids
     except FileNotFoundError:
         print(f"Error: XML file not found at '{xml_file}'")
         return []
@@ -334,8 +333,8 @@ def get_all_testbench_label_ids(xml_file: str) -> List[str]:
         tree = ET.parse(xml_file)
         root = tree.getroot()
         # Find all TestbenchLabel elements, assuming they are also namespaced
-        labels = [elem.attrib['Id'] for elem in root.findall('.//ns0:TestbenchLabel', NAMESPACES)]
-        return labels
+        testbench_ids = [elem.attrib['Id'] for elem in root.findall('.//ns0:TestbenchLabel', NAMESPACES)]
+        return testbench_ids
     except FileNotFoundError:
         print(f"Error: XML file not found at '{xml_file}'")
         return []
@@ -346,7 +345,7 @@ def get_all_testbench_label_ids(xml_file: str) -> List[str]:
         print(f"An unexpected error occurred in get_all_testbench_label_ids: {e}")
         return []
 
-def fuzzy_search_xml_labels(search_text: str, target_labels: List[str], fuzzy_threshold: int = 75) -> Optional[str]:
+def fuzzy_search_xml_labels(search_text: str, target_labels: List[str], fuzzy_threshold: int = 1) -> Optional[str]:
     """
     Fuzzy matches search_text to a list of target_labels, using lowercased comparison
     but returning the original label.
@@ -366,6 +365,7 @@ def fuzzy_search_xml_labels(search_text: str, target_labels: List[str], fuzzy_th
             # Find the original label from the target_labels list
             try:
                 idx = target_labels_lower.index(match_lower)
+                print(f"Fuzzy match {Score} {target_label[idx]}")
                 return target_labels[idx]  # Return the original, case-preserved label
             except ValueError:
                 # This should ideally not happen if match_lower came from target_labels_lower
@@ -381,7 +381,7 @@ def find_label_mapping_with_model(
     model: Optional[SGDClassifier],  # Model can be None
     vectorizer: Optional[TfidfVectorizer],  # Vectorizer can be None
     label_encoder: Optional[LabelEncoder],  # LabelEncoder can be None
-    framework_fuzzy_threshold: int = 75 # Threshold for step_text to FrameworkLabel
+    framework_fuzzy_threshold: int = 1 # Threshold for step_text to FrameworkLabel
 ) -> Optional[str]:
     """
     Finds the corresponding Testbench variable path.
@@ -391,18 +391,18 @@ def find_label_mapping_with_model(
     Returns the TestbenchLabel Id or None.
     """
     step_text_lower = step_text.lower()
-    print(f"\n[DEBUG] Processing step_text: '{step_text}' (lowercase: '{step_text_lower}')")
+    #print(f"\n[DEBUG] Processing step_text: '{step_text}' (lowercase: '{step_text_lower}')")
     
     # 1. Get all FrameworkLabels from XML (potential "source" IDs for the first stage)
     framework_labels_from_xml = get_xml_labels(xml_file)
-    print(f"[DEBUG] Extracted FrameworkLabels from XML: {framework_labels_from_xml}")
+    #print(f"[DEBUG] Extracted FrameworkLabels from XML: {framework_labels_from_xml}")
 
     # 2. Get all TestbenchLabels from XML (potential "target" IDs for the second stage)
     all_testbench_labels_from_xml = get_all_testbench_label_ids(xml_file)
-    print(f"[DEBUG] Extracted TestbenchLabels from XML: {all_testbench_labels_from_xml}")
+    #print(f"[DEBUG] Extracted TestbenchLabels from XML: {all_testbench_labels_from_xml}")
 
     if not framework_labels_from_xml or not all_testbench_labels_from_xml:
-        print("[DEBUG] Insufficient labels found in XML for mapping. Check XML file contents.")
+        #print("[DEBUG] Insufficient labels found in XML for mapping. Check XML file contents.")
         return None
 
     identified_framework_label: Optional[str] = None
@@ -448,7 +448,7 @@ def find_label_mapping_with_model(
     # Use fuzz.partial_ratio for this second fuzzy match
     # because the FrameworkLabel ID appears to be a substring of the TestbenchLabel ID.
     # Set a high threshold for this match, as it should be a strong semantic link.
-    testbench_fuzzy_threshold = 90 # Adjust this based on how strong the match should be
+    testbench_fuzzy_threshold = 1 # Adjust this based on how strong the match should be
 
     # Perform partial fuzzy matching using the identified FrameworkLabel against all TestbenchLabels
     final_testbench_label = fuzzy_search_xml_labels(
