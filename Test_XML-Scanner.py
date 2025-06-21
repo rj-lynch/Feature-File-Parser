@@ -2,6 +2,7 @@
 import pytest
 from Scan_XML import select_xml_file
 from Scan_XML import extract_framework_labelids, NAMESPACES # Import the function and NAMESPACES
+from unittest.mock import MagicMock # For mocking objects
 
 def test_select_xml_file_success(mocker):
     expected_path = "C:/path/to/my_file.xml"
@@ -283,5 +284,228 @@ def test_scrub_labelids_non_string_inputs():
         "{'dict_as_id': 1}"
     ]
     assert scrub_labelids(input_ids) == expected_output
+
+
+# test_label_matcher.py
+# Import the function and NAMESPACES from your module
+from Scan_XML import match_testbench_to_framework_labels, NAMESPACES
+
+# --- Helper to create a mock Element for ET.findall ---
+def create_mock_element(element_id):
+    """Creates a MagicMock object that behaves like an ElementTree Element
+    with an 'Id' attribute."""
+    mock_elem = MagicMock()
+    mock_elem.attrib = {'Id': element_id}
+    return mock_elem
+
+# --- Test Cases for match_testbench_to_framework_labels ---
+
+def test_match_testbench_to_framework_labels_success(mocker):
+    """
+    Tests successful extraction, scrubbing, and fuzzy matching.
+    """
+    # 1. Mock xml.etree.ElementTree.parse and its subsequent calls
+    mock_tree = MagicMock()
+    mock_root = MagicMock()
+    mock_tree.getroot.return_value = mock_root
+    
+    # Simulate findall returning elements with IDs, some needing scrubbing
+    mock_root.findall.return_value = [
+        create_mock_element("TB_Label_A"),
+        create_mock_element("TB_Label_B()://"), # This one needs scrubbing
+        create_mock_element("TB_Label_C_Long")
+    ]
+    mocker.patch('xml.etree.ElementTree.parse', return_value=mock_tree)
+
+    # 2. Mock fuzzywuzzy.process.extractOne
+    # We use side_effect to define what each call to extractOne returns
+    # The return format is (matched_string, score, index)
+    mock_extract_one = mocker.patch('fuzzywuzzy.process.extractOne', side_effect=[
+        ("Framework_Label_A", 90, 0),       # For "TB_Label_A"
+        ("Framework_Label_B_Match", 95, 1), # For "TB_Label_B" (after scrubbing)
+        ("Framework_Label_C_Long", 85, 2)   # For "TB_Label_C_Long"
+    ])
+
+    framework_labels = ["Framework_Label_A", "Framework_Label_B_Match", "Framework_Label_C_Long"]
+    
+    # Expected output: key is the framework label, value is the scrubbed testbench label
+    expected_matches = {
+        "Framework_Label_A": "TB_Label_A",
+        "Framework_Label_B_Match": "TB_Label_B", # Note: this is the scrubbed value
+        "Framework_Label_C_Long": "TB_Label_C_Long"
+    }
+
+    result = match_testbench_to_framework_labels("dummy.xml", framework_labels)
+
+    assert result == expected_matches
+    
+    # Verify that xml.etree.ElementTree.parse was called
+    mocker.patch('xml.etree.ElementTree.parse').assert_called_once_with("dummy.xml")
+    
+    # Verify that findall was called with the correct arguments
+    mock_root.findall.assert_called_once_with('.//ns0:TestbenchLabel', NAMESPACES)
+    
+    # Verify extractOne was called for each scrubbed testbench ID with correct arguments
+    mock_extract_one.assert_any_call("TB_Label_A", framework_labels, scorer=mocker.ANY) # mocker.ANY for fuzz.token_set_ratio
+    mock_extract_one.assert_any_call("TB_Label_B", framework_labels, scorer=mocker.ANY) # Assert scrubbed value
+    mock_extract_one.assert_any_call("TB_Label_C_Long", framework_labels, scorer=mocker.ANY)
+    assert mock_extract_one.call_count == len(mock_root.findall.return_value)
+
+
+def test_match_testbench_to_framework_labels_no_testbench_elements(mocker):
+    """
+    Tests scenario where no TestbenchLabel elements are found in XML.
+    """
+    mock_tree = MagicMock()
+    mock_root = MagicMock()
+    mock_tree.getroot.return_value = mock_root
+    mock_root.findall.return_value = [] # Simulate no elements found
+    mocker.patch('xml.etree.ElementTree.parse', return_value=mock_tree)
+    
+    # fuzzywuzzy.process.extractOne should not be called at all
+    mock_extract_one = mocker.patch('fuzzywuzzy.process.extractOne')
+
+    framework_labels = ["F_Label_1", "F_Label_2"]
+    result = match_testbench_to_framework_labels("dummy.xml", framework_labels)
+
+    assert result == {}
+    mock_root.findall.assert_called_once_with('.//ns0:TestbenchLabel', NAMESPACES)
+    mock_extract_one.assert_not_called()
+
+def test_match_testbench_to_framework_labels_file_not_found(mocker, capsys):
+    """
+    Tests handling of FileNotFoundError.
+    """
+    mocker.patch('xml.etree.ElementTree.parse', side_effect=FileNotFoundError)
+
+    result = match_testbench_to_framework_labels("non_existent.xml", ["F_Label"])
+
+    assert result == {}
+    captured = capsys.readouterr()
+    assert "Error: XML file not found at 'non_existent.xml'" in captured.out
+
+def test_match_testbench_to_framework_labels_parse_error(mocker, capsys):
+    """
+    Tests handling of ET.ParseError for malformed XML.
+    """
+    # Simulate a ParseError being raised by ET.parse
+    mocker.patch('xml.etree.ElementTree.parse', side_effect=ET.ParseError("syntax error detail", 0, 0))
+
+    result = match_testbench_to_framework_labels("malformed.xml", ["F_Label"])
+
+    assert result == {}
+    captured = capsys.readouterr()
+    assert "Error parsing XML file 'malformed.xml': syntax error detail" in captured.out
+
+def test_match_testbench_to_framework_labels_missing_id_attribute(mocker, capsys):
+    """
+    Tests handling of KeyError when an element is missing the 'Id' attribute.
+    This should be caught by the generic Exception handler.
+    """
+    mock_tree = MagicMock()
+    mock_root = MagicMock()
+    mock_tree.getroot.return_value = mock_root
+    
+    # Simulate an element without 'Id' attribute
+    mock_elem_no_id = MagicMock()
+    mock_elem_no_id.attrib = {'Name': 'Test'} # No 'Id'
+    mock_root.findall.return_value = [
+        create_mock_element("ValidId"),
+        mock_elem_no_id # This will cause a KeyError when .attrib['Id'] is accessed
+    ]
+    mocker.patch('xml.etree.ElementTree.parse', return_value=mock_tree)
+    
+    # fuzzywuzzy.process.extractOne should not be called if an error occurs earlier
+    mock_extract_one = mocker.patch('fuzzywuzzy.process.extractOne')
+
+    framework_labels = ["F_Label"]
+    result = match_testbench_to_framework_labels("dummy.xml", framework_labels)
+
+    assert result == {}
+    captured = capsys.readouterr()
+    assert "An unexpected error occurred in get_all_testbench_label_ids: KeyError: 'Id'" in captured.out
+    mock_extract_one.assert_not_called()
+
+def test_match_testbench_to_framework_labels_empty_framework_labels(mocker):
+    """
+    Tests scenario where framework_labels list is empty.
+    Fuzzy matching should be skipped, resulting in an empty dict.
+    """
+    mock_tree = MagicMock()
+    mock_root = MagicMock()
+    mock_tree.getroot.return_value = mock_root
+    mock_root.findall.return_value = [
+        create_mock_element("TB_Label_A") # Even if testbench labels exist
+    ]
+    mocker.patch('xml.etree.ElementTree.parse', return_value=mock_tree)
+    
+    # extractOne will raise ValueError if choices is empty, so it should not be called
+    mock_extract_one = mocker.patch('fuzzywuzzy.process.extractOne')
+
+    framework_labels = [] # Empty list
+    result = match_testbench_to_framework_labels("dummy.xml", framework_labels)
+
+    assert result == {}
+    mock_extract_one.assert_not_called()
+    
+def test_match_testbench_to_framework_labels_no_scrubbing_needed(mocker):
+    """
+    Tests that scrubbing doesn't alter IDs if '()://' is not present.
+    """
+    mock_tree = MagicMock()
+    mock_root = MagicMock()
+    mock_tree.getroot.return_value = mock_root
+    mock_root.findall.return_value = [
+        create_mock_element("TB_Label_A_Clean"),
+        create_mock_element("TB_Label_B_NoSpecialChars")
+    ]
+    mocker.patch('xml.etree.ElementTree.parse', return_value=mock_tree)
+
+    mock_extract_one = mocker.patch('fuzzywuzzy.process.extractOne', side_effect=[
+        ("F_Label_A_Clean", 90, 0),
+        ("F_Label_B_NoSpecialChars", 95, 1)
+    ])
+
+    framework_labels = ["F_Label_A_Clean", "F_Label_B_NoSpecialChars"]
+    expected_matches = {
+        "F_Label_A_Clean": "TB_Label_A_Clean",
+        "F_Label_B_NoSpecialChars": "TB_Label_B_NoSpecialChars"
+    }
+
+    result = match_testbench_to_framework_labels("dummy.xml", framework_labels)
+    assert result == expected_matches
+    # Verify extractOne was called with the original (unscrubbed, but clean) values
+    mock_extract_one.assert_any_call("TB_Label_A_Clean", framework_labels, scorer=mocker.ANY)
+    mock_extract_one.assert_any_call("TB_Label_B_NoSpecialChars", framework_labels, scorer=mocker.ANY)
+
+def test_match_testbench_to_framework_labels_scrubbing_performed(mocker):
+    """
+    Tests that scrubbing correctly removes '()://'.
+    """
+    mock_tree = MagicMock()
+    mock_root = MagicMock()
+    mock_tree.getroot.return_value = mock_root
+    mock_root.findall.return_value = [
+        create_mock_element("TB_Label_With_Scrub()://"),
+        create_mock_element("Another_TB_Label_With_Scrub()://")
+    ]
+    mocker.patch('xml.etree.ElementTree.parse', return_value=mock_tree)
+
+    mock_extract_one = mocker.patch('fuzzywuzzy.process.extractOne', side_effect=[
+        ("F_Label_With_Scrub", 90, 0),
+        ("Another_F_Label_With_Scrub", 95, 1)
+    ])
+
+    framework_labels = ["F_Label_With_Scrub", "Another_F_Label_With_Scrub"]
+    expected_matches = {
+        "F_Label_With_Scrub": "TB_Label_With_Scrub",
+        "Another_F_Label_With_Scrub": "Another_TB_Label_With_Scrub"
+    }
+
+    result = match_testbench_to_framework_labels("dummy.xml", framework_labels)
+    assert result == expected_matches
+    # Crucially, check that extractOne was called with the *scrubbed* values
+    mock_extract_one.assert_any_call("TB_Label_With_Scrub", framework_labels, scorer=mocker.ANY)
+    mock_extract_one.assert_any_call("Another_TB_Label_With_Scrub", framework_labels, scorer=mocker.ANY)
 
 

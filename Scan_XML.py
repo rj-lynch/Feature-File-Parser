@@ -1,19 +1,9 @@
-import re
-import csv
 import tkinter as tk
 from tkinter import filedialog
-import os
 import xml.etree.ElementTree as ET
-import pandas as pd
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import SGDClassifier
-from sklearn.preprocessing import LabelEncoder
-import pickle
 from fuzzywuzzy import fuzz
 from fuzzywuzzy import process
-import json
-from typing import List, Dict, Tuple, Any, Optional, Union
+from typing import List
 
 # XML Namespace for parsing
 XIL_NAMESPACE = "http://www.asam.net/XIL/Mapping/2.2.0"
@@ -77,54 +67,35 @@ def scrub_labelids(labelids):
 
     return scrubbed_labelids
 
-answer=scrub_labelids(extract_framework_labelids(r"C:\Users\RLYNCH39\Downloads\Mapping.BE672F86-DAE9-4A56-8C8D-5A34762EC14F.xml"))
-print(answer)
-# NEW FUNCTION: To get all TestbenchLabel IDs
-# def get_all_testbench_label_ids(xml_file: str) -> List[str]:
-#     """Extracts all Id values from TestbenchLabel elements in the XML file."""
-#     try:
-#         tree = ET.parse(xml_file)
-#         root = tree.getroot()
-#         # Find all TestbenchLabel elements, assuming they are also namespaced
-#         testbench_ids = [elem.attrib['Id'] for elem in root.findall('.//ns0:TestbenchLabel', NAMESPACES)]
-#         return testbench_ids
-#     except FileNotFoundError:
-#         print(f"Error: XML file not found at '{xml_file}'")
-#         return []
-#     except ET.ParseError as e:
-#         print(f"Error parsing XML file '{xml_file}': {e}")
-#         return []
-#     except Exception as e:
-#         print(f"An unexpected error occurred in get_all_testbench_label_ids: {e}")
-#         return []
-
-# def fuzzy_search_xml_labels(search_text: str, target_labels: List[str], fuzzy_threshold: int = 1) -> Optional[str]:
-#     """
-#     Fuzzy matches search_text to a list of target_labels, using lowercased comparison
-#     but returning the original label.
-#     """
-#     if not target_labels:
-#         return None
-
-#     target_labels_lower = [str(label).lower() for label in target_labels]
-#     search_text_lower = search_text.lower()
-
-#     # Using fuzz.token_set_ratio is often better for phrases as it handles word order and extra words
-#     result = process.extractOne(search_text_lower, target_labels_lower, scorer=fuzz.token_set_ratio)
+# -- Get all TestbenchLabel IDs, remove uneccessary characters
+# -- Set to lowercase 
+# -- Assign to dictionary (Framework LabelIds = Key and TestbenchLabel Ids = Value)
+def match_testbench_to_framework_labels(xml_file, framework_labels):
+    """Get all TestbenchLabel IDs, remove uneccessary characters,
+    and assigns to dictionary (Framework LabelIds = Key and TestbenchLabel Ids = Value)"""
+    try:
+        tree = ET.parse(xml_file)
+        root = tree.getroot()
+        # Find all TestbenchLabel elements, assuming they are also namespaced
+        testbench_ids = [elem.attrib['Id'] for elem in root.findall('.//ns0:TestbenchLabel', NAMESPACES)]
+        # Scrub Testbench Ids to remove excess characters
+        scrubbed_testbench_ids=[]
+        for testbench_id in testbench_ids:
+            scrubbed_testbench_id = testbench_id.replace("()://","")
+            scrubbed_testbench_ids.append(scrubbed_testbench_id)
+        # Fuzzy search Framework Label Id against Testbench label Id and assign closest match to dictionary
+        matches_dict = {}
+        for scrubbed_testbench_id in scrubbed_testbench_ids:
+            result = process.extractOne(scrubbed_testbench_id, framework_labels, scorer=fuzz.token_set_ratio)
+            matches_dict[result[0]] = scrubbed_testbench_id
+        return matches_dict
     
-#     if result:
-#         match_lower, score = result
-#         if score >= fuzzy_threshold:
-#             # Find the original label from the target_labels list
-#             try:
-#                 idx = target_labels_lower.index(match_lower)
-#                 print(f"Fuzzy match {Score} {target_label[idx]}")
-#                 return target_labels[idx]  # Return the original, case-preserved label
-#             except ValueError:
-#                 # This should ideally not happen if match_lower came from target_labels_lower
-#                 print(f"Warning: Fuzzy match '{match_lower}' not found in original lowercased list.")
-#                 return None
-#     return None
-
-
-#select_xml_file()
+    except FileNotFoundError:
+         print(f"Error: XML file not found at '{xml_file}'")
+         return []
+    except ET.ParseError as e:
+         print(f"Error parsing XML file '{xml_file}': {e}")
+         return []
+    except Exception as e:
+         print(f"An unexpected error occurred in get_all_testbench_label_ids: {e}")
+         return []
