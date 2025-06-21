@@ -3,6 +3,7 @@ import pytest
 from Scan_XML import select_xml_file
 from Scan_XML import extract_framework_labelids, NAMESPACES # Import the function and NAMESPACES
 from unittest.mock import MagicMock # For mocking objects
+import xml.etree.ElementTree as ET # For ET.ParseError
 
 def test_select_xml_file_success(mocker):
     expected_path = "C:/path/to/my_file.xml"
@@ -507,5 +508,3 @@ def test_match_testbench_to_framework_labels_scrubbing_performed(mocker):
     # Crucially, check that extractOne was called with the *scrubbed* values
     mock_extract_one.assert_any_call("TB_Label_With_Scrub", framework_labels, scorer=mocker.ANY)
     mock_extract_one.assert_any_call("Another_TB_Label_With_Scrub", framework_labels, scorer=mocker.ANY)
-
-
