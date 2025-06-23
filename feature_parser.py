@@ -2,7 +2,7 @@
 import re
 import tkinter as tk
 from tkinter import filedialog
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Union, Optional
 
 # --- Select .feature files ---
 def select_feature_files():
@@ -84,6 +84,29 @@ def parse_feature_file(filename: str) -> Dict[str, List[Tuple[str, str, Optional
                      latency_match = LATENCY_REGEX.search(step_text)
                      if latency_match:
                            latency = latency_match.group(1) # Capture the raw string matched by \S+
+                     
+                     # --- Value Conversion Logic (Hex to Decimal) ---
+                     value_to_write: Union[str, int, None] = value # Default to the extracted string or None
+                     if value is not None:
+                        stripped_value = value.strip()
+                        try:
+                            # Attempt hex conversion if it starts with '0x' or '#'
+                            if stripped_value.lower().startswith('0x'):
+                                # Remove '0x' prefix before converting
+                                hex_string = stripped_value[2:]
+                                value_to_write = int(hex_string, 16)
+                            elif stripped_value.startswith('#'):
+                                # Remove '#' prefix before converting
+                                hex_string = stripped_value[1:]
+                                value_to_write = int(hex_string, 16)
+                            else:
+                                # Attempt decimal conversion for values without a hex prefix
+                                value_to_write = int(stripped_value)
+                        except ValueError:
+                            # If conversion fails (for hex or decimal), keep the original string
+                            # print(f"Warning: Could not convert value '{value}' to number (decimal or hex) for step '{step_text}'. Writing original string.")
+                            value_to_write = value # Keep the original string
+                     # --- End Value Conversion Logic --- 
 
                      # Determine step type and sequence
                      if step_keyword in ['Given', 'When', 'Then']:
@@ -99,15 +122,11 @@ def parse_feature_file(filename: str) -> Dict[str, List[Tuple[str, str, Optional
                                # Handle 'And' without a preceding Given/When/Then
                                step_type = f"{step_keyword}_1" # Treat as the first step of its kind
                                print(f"Warning: '{step_keyword}' step found without preceding Given/When/Then in {filename} line {line_number}. Treating as first step.")
-                               # The commented lines below would make 'And' a new context,
-                               # but usually 'And' continues the previous context.
-                               # current_step_context = step_keyword
-                               # step_sequence_counter = 1
 
                      if current_scenario:
                          # Store step type, text, extracted value (string), and extracted latency (string)
                          # --- MODIFIED THIS LINE TO INCLUDE value AND latency ---
-                         scenario_steps[current_scenario].append((step_type, step_text, value, latency))
+                         scenario_steps[current_scenario].append((step_type, step_text, value_to_write, latency))
                      else:
                          print(f"Warning: Step '{stripped_line}' found outside of a scenario in {filename} line {line_number}.")
 

@@ -320,3 +320,142 @@ def test_parse_feature_file_success_message(mocker, capfd):
 
     outerr = capfd.readouterr()
     assert "Successfully parsed success.feature" in outerr.out
+    
+def test_parse_feature_file_value_hex_conversion_0x_prefix(mocker):
+    """Tests correct conversion of 'value=0x...' hex strings to integers."""
+    file_content = """
+    Feature: Hex Value Test
+    Scenario: Convert 0x hex
+      When I send a request with value=0xAF
+      And another with value=0x1a
+      And a third with value=0x0
+    """
+    mock_file_obj = mock_feature_file_content(mocker, file_content)
+
+    result = parse_feature_file("test_hex_0x.feature")
+
+    expected = {
+        "Convert 0x hex": [
+            ("When_1", "I send a request with value=0xAF", 0xAF, None), # 175
+            ("When_2", "another with value=0x1a", 0x1A, None), # 26
+            ("When_3", "a third with value=0x0", 0x0, None)    # 0
+        ]
+    }
+    assert result == expected
+    mock_file_obj.assert_called_once_with("test_hex_0x.feature", 'r', encoding='utf-8')
+
+def test_parse_feature_file_value_hex_conversion_hash_prefix(mocker):
+    """Tests correct conversion of 'value=#' hex strings to integers."""
+    file_content = """
+    Feature: Hash Hex Value Test
+    Scenario: Convert # hex
+      When I send a request with value=#FF
+      And another with value=#ABC
+    """
+    mock_file_obj = mock_feature_file_content(mocker, file_content)
+
+    result = parse_feature_file("test_hex_hash.feature")
+
+    expected = {
+        "Convert # hex": [
+            ("When_1", "I send a request with value=#FF", 0xFF, None), # 255
+            ("When_2", "another with value=#ABC", 0xABC, None) # 2748
+        ]
+    }
+    assert result == expected
+    mock_file_obj.assert_called_once_with("test_hex_hash.feature", 'r', encoding='utf-8')
+
+def test_parse_feature_file_value_decimal_conversion(mocker):
+    """Tests correct conversion of 'value=...' decimal strings to integers."""
+    file_content = """
+    Feature: Decimal Value Test
+    Scenario: Convert decimal
+      When I send a request with value=123
+      And another with value=-45
+      And a third with value=0
+    """
+    mock_file_obj = mock_feature_file_content(mocker, file_content)
+
+    result = parse_feature_file("test_decimal.feature")
+
+    expected = {
+        "Convert decimal": [
+            ("When_1", "I send a request with value=123", 123, None),
+            ("When_2", "another with value=-45", -45, None),
+            ("When_3", "a third with value=0", 0, None)
+        ]
+    }
+    assert result == expected
+    mock_file_obj.assert_called_once_with("test_decimal.feature", 'r', encoding='utf-8')
+
+def test_parse_feature_file_value_invalid_conversion_retains_string(mocker):
+    """
+    Tests that if value conversion (hex or decimal) fails,
+    the original string representation is retained.
+    """
+    file_content = """
+    Feature: Invalid Value Test
+    Scenario: Retain original string on conversion failure
+      When I send a request with value=0xGHI # Invalid hex
+      And another with value=#XYZ # Invalid hex
+      And a third with value=not_a_number # Invalid decimal
+      And a fourth with value=123.45 # Float, not int
+    """
+    mock_file_obj = mock_feature_file_content(mocker, file_content)
+
+    result = parse_feature_file("test_invalid_value.feature")
+
+    expected = {
+        "Retain original string on conversion failure": [
+            ("When_1", "I send a request with value=0xGHI", "0xGHI", None),
+            ("When_2", "another with value=#XYZ", "#XYZ", None),
+            ("When_3", "a third with value=not_a_number", "not_a_number", None),
+            ("When_4", "a fourth with value=123.45", "123.45", None)
+        ]
+    }
+    assert result == expected
+    mock_file_obj.assert_called_once_with("test_invalid_value.feature", 'r', encoding='utf-8')
+
+def test_parse_feature_file_value_with_whitespace(mocker):
+    """Tests that leading/trailing whitespace in 'value=' is handled correctly."""
+    file_content = """
+    Feature: Whitespace Value Test
+    Scenario: Value with whitespace
+      When I send a request with value= 0xAF 
+      And another with value= #FF
+      And a third with value= 123
+    """
+    mock_file_obj = mock_feature_file_content(mocker, file_content)
+
+    result = parse_feature_file("test_whitespace_value.feature")
+
+    expected = {
+        "Value with whitespace": [
+            ("When_1", "I send a request with value= 0xAF ", 0xAF, None), # Should strip and convert
+            ("When_2", "another with value= #FF", 0xFF, None),   # Should strip and convert
+            ("When_3", "a third with value= 123", 123, None)      # Should strip and convert
+        ]
+    }
+    assert result == expected
+    mock_file_obj.assert_called_once_with("test_whitespace_value.feature", 'r', encoding='utf-8')
+
+def test_parse_feature_file_value_case_insensitive_0x_prefix(mocker):
+    """Tests that '0x' prefix for hex conversion is case-insensitive."""
+    file_content = """
+    Feature: Case Insensitive Hex Test
+    Scenario: 0x prefix case sensitivity
+      When I send a request with value=0XABC
+      And another with value=0xdef
+    """
+    mock_file_obj = mock_feature_file_content(mocker, file_content)
+
+    result = parse_feature_file("test_case_insensitive_0x.feature")
+
+    expected = {
+        "0x prefix case sensitivity": [
+            ("When_1", "I send a request with value=0XABC", 0xABC, None), # 2748
+            ("When_2", "another with value=0xdef", 0xDEF, None) # 3567
+        ]
+    }
+    assert result == expected
+    mock_file_obj.assert_called_once_with("test_case_insensitive_0x.feature", 'r', encoding='utf-8')
