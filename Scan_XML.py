@@ -220,8 +220,3 @@ if xml_file_path: # Only proceed if a file was selected
             print(f"Framework Label: '{framework_label}' matched to Testbench ID: '{testbench_id}'")
     else:
         print("No matches found or an error occurred during matching.")
-
-x=select_xml_file()
-y=scrub_labelids(extract_framework_labelids(x))
-z=match_testbench_to_framework_labels(x,y)
-print(z)
