@@ -1,22 +1,19 @@
-# test_Scan_XML.py
+# test_scan_xml.py
 import pytest
-from Scan_XML import select_xml_file
-from Scan_XML import extract_framework_labelids, NAMESPACES # Import the function and NAMESPACES
+from scan_xml import select_xml_file
+from scan_xml import extract_framework_labelids, NAMESPACES # Import the function and NAMESPACES
 from unittest.mock import MagicMock # For mocking objects
 import xml.etree.ElementTree as ET # For ET.ParseError
+from scan_xml import scrub_labelids
+from scan_xml import match_testbench_to_framework_labels, NAMESPACES
+
+# --- Test Cases for select_xml_file ---
 
 def test_select_xml_file_success(mocker):
     expected_path = "C:/path/to/my_file.xml"
-    # PATCHING: Scan_XML.filedialog.askopenfilename
-    # This is correct because 'filedialog' is imported directly into Scan_XML.'s namespace
     mock_ask = mocker.patch('Scan_XML.filedialog.askopenfilename', return_value=expected_path)
-    
-    # PATCHING: Scan_XML.tk.Tk
-    # This is correct because 'tk' is imported as 'tk' into Scan_XML.'s namespace
     mock_tk = mocker.patch('Scan_XML.tk.Tk')
-
     result = select_xml_file()
-
     assert result == expected_path
     mock_ask.assert_called_once_with(
         title="Select .xml file",
@@ -24,7 +21,6 @@ def test_select_xml_file_success(mocker):
     )
     mock_tk.assert_called_once()
     mock_tk.return_value.withdraw.assert_called_once()
-
 
 def test_select_xml_file_cancelled(mocker):
     mock_ask = mocker.patch('Scan_XML.filedialog.askopenfilename', return_value="")
@@ -151,12 +147,6 @@ def test_extract_framework_labelids_empty_file(tmp_path, capsys):
     captured = capsys.readouterr()
     assert "Error parsing XML file" in captured.out
     assert "no element found" in captured.out # Specific error for empty XML
-
-
-
-# test_label_scrubber.py
-import pytest
-from Scan_XML import scrub_labelids # Import the corrected function
 
 # --- Test Cases for scrub_labelids ---
 
@@ -287,10 +277,6 @@ def test_scrub_labelids_non_string_inputs():
     assert scrub_labelids(input_ids) == expected_output
 
 
-# test_label_matcher.py
-# Import the function and NAMESPACES from your module
-from Scan_XML import match_testbench_to_framework_labels, NAMESPACES
-
 # --- Helper to create a mock Element for ET.findall ---
 def create_mock_element(element_id):
     """Creates a MagicMock object that behaves like an ElementTree Element
@@ -351,7 +337,6 @@ def test_match_testbench_to_framework_labels_success(mocker):
     mock_extract_one.assert_any_call("TB_Label_B", framework_labels, scorer=mocker.ANY) # Assert scrubbed value
     mock_extract_one.assert_any_call("TB_Label_C_Long", framework_labels, scorer=mocker.ANY)
     assert mock_extract_one.call_count == len(mock_root.findall.return_value)
-
 
 def test_match_testbench_to_framework_labels_no_testbench_elements(mocker):
     """

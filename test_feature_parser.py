@@ -6,15 +6,12 @@ import xml.etree.ElementTree as ET # For ET.ParseError (not directly used here, 
 from unittest.mock import mock_open
 import re # Not strictly needed for tests, but parse_feature_file uses it.
 from typing import Dict, List, Tuple, Optional
-
-# Import the function to be tested.
-# This assumes your parse_feature_file function is in a file named feature_parser.py
 from feature_parser import parse_feature_file
 
 def test_select_feature_file_success(mocker):
     # When selecting multiple files, the function returns a LIST of paths.
     # So, expected_paths should be a list.
-    expected_paths = ["C:/path/to/my_file.feature", "D:/another/path/second.feature"]
+    expected_paths = ['C:/path/to/my_file.feature', 'D:/another/path/second.feature']
 
     # askopenfilenames returns a TUPLE of paths.
     # So, the mock's return_value must be a tuple.
@@ -34,7 +31,6 @@ def test_select_feature_file_success(mocker):
     )
     mock_tk.assert_called_once()
     mock_tk.return_value.withdraw.assert_called_once()
-
 
 def test_select_feature_file_cancelled(mocker):
     # When cancelled, askopenfilenames returns an EMPTY TUPLE ().
@@ -158,24 +154,24 @@ def test_parse_feature_file_value_latency_extraction(mocker):
 
     Scenario: Send request with specific value and latency
       Given an API endpoint is available
-      When I send a request with value=123 and latency=50ms
+      When I send a request with value=123 and latency=50
       Then the response should have status 200
-      And the response body should contain data with value=abc
+      And the response body should contain data with value=1
     """
     mock_file_obj = mock_feature_file_content(mocker, file_content)
 
     result = parse_feature_file("test_api.feature")
 
     expected = {
-        "Send request with specific value and latency": [
-            ("Given_1", "an API endpoint is available", None, None),
-            ("When_1", "I send a request with value=123 and latency=50ms", "123", "50ms"),
-            ("Then_1", "the response should have status 200", None, None),
-            ("Then_2", "the response body should contain data with value=abc", "abc", None)
+        'Send request with specific value and latency': [
+            ('Given_1', 'an API endpoint is available', None, None),
+            ('When_1', 'I send a request with value=123 and latency=50', 123, 50),
+            ('Then_1', 'the response should have status 200', None, None),
+            ('Then_2', 'the response body should contain data with value=1', 1, None)
         ]
     }
     assert result == expected
-    mock_file_obj.assert_called_once_with("test_api.feature", 'r', encoding='utf-8')
+    mock_file_obj.assert_called_once_with('test_api.feature', 'r', encoding='utf-8')
 
 def test_parse_feature_file_comments_and_empty_lines(mocker):
     """Tests that comments and empty lines are correctly ignored."""
@@ -348,18 +344,18 @@ def test_parse_feature_file_value_hex_conversion_hash_prefix(mocker):
     """Tests correct conversion of 'value=#' hex strings to integers."""
     file_content = """
     Feature: Hash Hex Value Test
-    Scenario: Convert # hex
-      When I send a request with value=#FF
-      And another with value=#ABC
+    Scenario: Convert hex
+      When I send a request with value=0xFF
+      And another with value=0xABC
     """
     mock_file_obj = mock_feature_file_content(mocker, file_content)
 
     result = parse_feature_file("test_hex_hash.feature")
 
     expected = {
-        "Convert # hex": [
-            ("When_1", "I send a request with value=#FF", 0xFF, None), # 255
-            ("When_2", "another with value=#ABC", 0xABC, None) # 2748
+        "Convert hex": [
+            ("When_1", "I send a request with value=0xFF", 255, None),
+            ("When_2", "another with value=0xABC", 2748, None)
         ]
     }
     assert result == expected
@@ -388,7 +384,7 @@ def test_parse_feature_file_value_decimal_conversion(mocker):
     assert result == expected
     mock_file_obj.assert_called_once_with("test_decimal.feature", 'r', encoding='utf-8')
 
-def test_parse_feature_file_value_invalid_conversion_retains_string(mocker):
+def test_parse_feature_file_value_invalid_conversion_becomes_none(mocker):
     """
     Tests that if value conversion (hex or decimal) fails,
     the original string representation is retained.
@@ -397,7 +393,7 @@ def test_parse_feature_file_value_invalid_conversion_retains_string(mocker):
     Feature: Invalid Value Test
     Scenario: Retain original string on conversion failure
       When I send a request with value=0xGHI # Invalid hex
-      And another with value=#XYZ # Invalid hex
+      And another with value=XYZ # Invalid hex
       And a third with value=not_a_number # Invalid decimal
       And a fourth with value=123.45 # Float, not int
     """
@@ -407,10 +403,10 @@ def test_parse_feature_file_value_invalid_conversion_retains_string(mocker):
 
     expected = {
         "Retain original string on conversion failure": [
-            ("When_1", "I send a request with value=0xGHI", "0xGHI", None),
-            ("When_2", "another with value=#XYZ", "#XYZ", None),
-            ("When_3", "a third with value=not_a_number", "not_a_number", None),
-            ("When_4", "a fourth with value=123.45", "123.45", None)
+            ("When_1", "I send a request with value=0xGHI", None, None),
+            ("When_2", "another with value=XYZ", None, None),
+            ("When_3", "a third with value=not_a_number", None, None),
+            ("When_4", "a fourth with value=123.45", None, None)
         ]
     }
     assert result == expected
@@ -422,7 +418,7 @@ def test_parse_feature_file_value_with_whitespace(mocker):
     Feature: Whitespace Value Test
     Scenario: Value with whitespace
       When I send a request with value= 0xAF 
-      And another with value= #FF
+      And another with value= 0xFF 
       And a third with value= 123
     """
     mock_file_obj = mock_feature_file_content(mocker, file_content)
@@ -431,8 +427,8 @@ def test_parse_feature_file_value_with_whitespace(mocker):
 
     expected = {
         "Value with whitespace": [
-            ("When_1", "I send a request with value= 0xAF ", 0xAF, None), # Should strip and convert
-            ("When_2", "another with value= #FF", 0xFF, None),   # Should strip and convert
+            ("When_1", "I send a request with value= 0xAF", 175, None), # Should strip and convert
+            ("When_2", "another with value= 0xFF", 255, None),   # Should strip and convert
             ("When_3", "a third with value= 123", 123, None)      # Should strip and convert
         ]
     }

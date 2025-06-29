@@ -29,106 +29,105 @@ def select_feature_files():
     return list(file_paths_tuple)
 
 # --- Gherkin Parsing ---
-def parse_feature_file(filename: str) -> Dict[str, List[Tuple[str, str, Optional[str], Optional[str]]]]:
+def parse_feature_file(filename: str) -> Dict[str, List[Tuple[str, str, Optional[Union[str, int]], Optional[str]]]]:
      """
      Parses a Gherkin .feature file to extract scenarios and steps.
-     Extracts 'value' and 'latency' as strings if present in the step text.
+     Ignores comments (full line or inline starting with #).
+     Extracts 'value' and 'latency' as strings if present in the step text,
+     with 'value' converted to int if it's a valid number (decimal or hex).
      """
-     scenario_steps: Dict[str, List[Tuple[str, str, Optional[str], Optional[str]]]] = {}
+     scenario_steps: Dict[str, List[Tuple[str, str, Optional[Union[str, int]], Optional[str]]]] = {}
      current_scenario: Optional[str] = None
-     # Track the type of the most recent main step (Given, When, Then) for 'And' steps
      current_step_context: Optional[str] = None
-     step_sequence_counter: int = 0 # Counter for steps within a context (Given_1, Given_2, etc.)
+     step_sequence_counter: int = 0
 
      try:
          with open(filename, 'r', encoding='utf-8') as file:
              for line_number, line in enumerate(file, 1):
                  stripped_line = line.strip()
-
-                 # Ignore comments and empty lines
+                 # First, handle full-line comments and empty lines
                  if not stripped_line or stripped_line.startswith('#'):
+                     continue
+                 
+                 # Now, remove any inline comments from the *rest* of the line
+                 # This regex matches '#' followed by any characters to the end of the line.
+                 # It replaces the comment part with an empty string.
+                 # Then, re-strip to remove any trailing whitespace left by the comment removal.
+                 line_without_inline_comment = re.sub(r'#.*$', '', stripped_line).strip()
+
+                 # If the line becomes empty after removing an inline comment (e.g., "   # Only a comment"), skip it
+                 if not line_without_inline_comment:
                      continue
 
                  # Scenario or Scenario Outline title
-                 if stripped_line.startswith('Scenario:'):
-                     current_scenario = stripped_line.split('Scenario:')[1].strip()
+                 if line_without_inline_comment.startswith('Scenario:'):
+                     current_scenario = line_without_inline_comment.split('Scenario:')[1].strip()
                      scenario_steps[current_scenario] = []
-                     current_step_context = None # Reset context for new scenario
+                     current_step_context = None
                      step_sequence_counter = 0
                      continue
-                 if stripped_line.startswith('Scenario Outline:'):
-                      current_scenario = stripped_line.split('Scenario Outline:')[1].strip()
-                      # Note: This parser doesn't handle Examples tables for Scenario Outlines.
-                      # It just gets the outline text.
+                 if line_without_inline_comment.startswith('Scenario Outline:'):
+                      current_scenario = line_without_inline_comment.split('Scenario Outline:')[1].strip()
                       scenario_steps[current_scenario] = []
-                      current_step_context = None # Reset context for new scenario
+                      current_step_context = None
                       step_sequence_counter = 0
                       continue
 
                  # Check for step lines (Given, When, Then, And)
-                 # Define possible step keywords for easier processing
                  STEP_KEYWORDS = ['Given', 'When', 'Then', 'And']
-                 step_match = re.match(r'(' + '|'.join(STEP_KEYWORDS) + r')\s+(.*)', stripped_line)
+                 # Use line_without_inline_comment for matching step keywords
+                 step_match = re.match(r'(' + '|'.join(STEP_KEYWORDS) + r')\s+(.*)', line_without_inline_comment)
                  if step_match:
                      step_keyword = step_match.group(1)
-                     step_text = step_match.group(2).strip()
-                    # Extract value and latency as raw strings if present
+                     raw_step_text = step_match.group(2).strip() # This is already free of comments due to earlier processing
+
                      value = None
                      latency = None
                      VALUE_REGEX = re.compile(r"value\s*=\s*(\S+)", re.IGNORECASE)
                      LATENCY_REGEX = re.compile(r"latency\s*=\s*(\S+)", re.IGNORECASE)
-                     value_match = VALUE_REGEX.search(step_text)
+                     
+                     value_match = VALUE_REGEX.search(raw_step_text)
                      if value_match:
-                        value = value_match.group(1) # Capture the raw string matched by \S+
+                        value = value_match.group(1)
 
-                     latency_match = LATENCY_REGEX.search(step_text)
+                     latency_match = LATENCY_REGEX.search(raw_step_text)
                      if latency_match:
-                           latency = latency_match.group(1) # Capture the raw string matched by \S+
+                           latency = int(latency_match.group(1))
                      
                      # --- Value Conversion Logic (Hex to Decimal) ---
-                     value_to_write: Union[str, int, None] = value # Default to the extracted string or None
+                     value_to_store: Union[str, int, None] = value # Default to the extracted string or None
                      if value is not None:
-                        stripped_value = value.strip()
+                        # Stripping value again in case the Gherkin step had extra spaces around the value itself
+                        stripped_value = value.strip() 
                         try:
-                            # Attempt hex conversion if it starts with '0x' or '#'
                             if stripped_value.lower().startswith('0x'):
-                                # Remove '0x' prefix before converting
                                 hex_string = stripped_value[2:]
-                                value_to_write = int(hex_string, 16)
-                            elif stripped_value.startswith('#'):
-                                # Remove '#' prefix before converting
-                                hex_string = stripped_value[1:]
-                                value_to_write = int(hex_string, 16)
+                                value_to_store = int(hex_string, 16)
                             else:
-                                # Attempt decimal conversion for values without a hex prefix
-                                value_to_write = int(stripped_value)
+                                value_to_store = int(stripped_value)
                         except ValueError:
-                            # If conversion fails (for hex or decimal), keep the original string
-                            # print(f"Warning: Could not convert value '{value}' to number (decimal or hex) for step '{step_text}'. Writing original string.")
-                            value_to_write = value # Keep the original string
+                            # If conversion fails, set value to None
+                            value_to_store = None
                      # --- End Value Conversion Logic --- 
 
                      # Determine step type and sequence
                      if step_keyword in ['Given', 'When', 'Then']:
-                         current_step_context = step_keyword # Set new context
-                         step_sequence_counter = 1 # Start counter for this context
+                         current_step_context = step_keyword
+                         step_sequence_counter = 1
                          step_type = f"{step_keyword}_{step_sequence_counter}"
-                     elif step_keyword in 'And':
+                     elif step_keyword == 'And': # Changed from 'in' to '==' for clarity since it's a single keyword
                           if current_step_context:
-                               step_sequence_counter += 1 # Increment counter within current context
-                               # Use the last seen main keyword for 'And'/'But'
+                               step_sequence_counter += 1
                                step_type = f"{current_step_context}_{step_sequence_counter}"
                           else:
-                               # Handle 'And' without a preceding Given/When/Then
-                               step_type = f"{step_keyword}_1" # Treat as the first step of its kind
+                               step_type = f"{step_keyword}_1"
                                print(f"Warning: '{step_keyword}' step found without preceding Given/When/Then in {filename} line {line_number}. Treating as first step.")
 
                      if current_scenario:
-                         # Store step type, text, extracted value (string), and extracted latency (string)
-                         # --- MODIFIED THIS LINE TO INCLUDE value AND latency ---
-                         scenario_steps[current_scenario].append((step_type, step_text, value_to_write, latency))
+                         # Store step type, CLEANED step text, converted value, and extracted latency
+                         scenario_steps[current_scenario].append((step_type, raw_step_text, value_to_store, latency))
                      else:
-                         print(f"Warning: Step '{stripped_line}' found outside of a scenario in {filename} line {line_number}.")
+                         print(f"Warning: Step '{line_without_inline_comment}' found outside of a scenario in {filename} line {line_number}.")
 
          print(f"Successfully parsed {filename}")
      except FileNotFoundError:

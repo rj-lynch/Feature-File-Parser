@@ -201,22 +201,3 @@ def match_testbench_to_framework_labels(xml_file: str, framework_labels: List[st
          # Corrected the error message string here
          print(f"An unexpected error occurred in match_testbench_to_framework_labels: {e}")
          return {} # <--- CORRECTED: Changed from [] to {}
-
-# --- Corrected Function Calls ---
-xml_file_path = select_xml_file() # This is 'x' from your original code (the XML file path)
-
-if xml_file_path: # Only proceed if a file was selected
-    # Extract and scrub framework labels
-    raw_framework_labels = extract_framework_labelids(xml_file_path)
-    scrubbed_framework_labels = scrub_labelids(raw_framework_labels) # This is 'y' from your original code (the list of scrubbed labels)
-
-    # Now, call the function with the correct arguments
-    # xml_file (path) is the first argument, framework_labels (list) is the second
-    matched_labels = match_testbench_to_framework_labels(xml_file_path, scrubbed_framework_labels)
-
-    print("\n--- Matching Results ---")
-    if matched_labels: # Now `matched_labels` will always be a dict, so `if matched_labels` works for non-empty dicts
-        for framework_label, testbench_id in matched_labels.items():
-            print(f"Framework Label: '{framework_label}' matched to Testbench ID: '{testbench_id}'")
-    else:
-        print("No matches found or an error occurred during matching.")
