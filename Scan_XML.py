@@ -3,7 +3,8 @@ from tkinter import filedialog
 import xml.etree.ElementTree as ET
 from fuzzywuzzy import fuzz
 from fuzzywuzzy import process
-from typing import List
+from typing import List, Dict
+import sys
 
 # XML Namespace for parsing
 XIL_NAMESPACE = "http://www.asam.net/XIL/Mapping/2.2.0"
@@ -34,13 +35,13 @@ def extract_framework_labelids(xml_file: str) -> List[str]:
          print(labelids)
          return labelids
      except FileNotFoundError:
-         print(f"Error: XML file not found at '{xml_file}'")
+         print(f"Error: XML file not found at '{xml_file}'", file=sys.stderr)
          return []
      except ET.ParseError as e:
          print(f"Error parsing XML file '{xml_file}': {e}")
          return []
      except Exception as e:
-         print(f"An unexpected error occurred in get_xml_labels: {e}")
+         print(f"An unexpected error occurred in extract_framework_labelids: {e}", file=sys.stderr)
          return []
 
 # -- Scrub LabelIds by removing suffix and making them lowercase --
@@ -50,87 +51,22 @@ def scrub_labelids(labelids):
     # Removing unnecessary prefixes before fuzzy search
     scrubbed_labelids=[]
     for lowercase_labelid in lowercase_labelids:
-        if "io_signal" in lowercase_labelid:
-            scrubbed_labelid = lowercase_labelid.replace("_io_signal","")
-            scrubbed_labelids.append(scrubbed_labelid)
-        elif "ta_replacevalue" in lowercase_labelid:
-            scrubbed_labelid = lowercase_labelid.replace("_ta_replacevalue","")
-            scrubbed_labelids.append(scrubbed_labelid)
-        elif "value_io_signal" in lowercase_labelid:
+        if "_value_io_signal" in lowercase_labelid:
             scrubbed_labelid = lowercase_labelid.replace("_value_io_signal","")
             scrubbed_labelids.append(scrubbed_labelid)
-        elif "value_ta_replacevalue" in lowercase_labelid:
+        elif "_value_ta_replacevalue" in lowercase_labelid:
             scrubbed_labelid = lowercase_labelid.replace("_value_ta_replacevalue","")
+            scrubbed_labelids.append(scrubbed_labelid)
+        elif "_io_signal" in lowercase_labelid:
+            scrubbed_labelid = lowercase_labelid.replace("_io_signal","")
+            scrubbed_labelids.append(scrubbed_labelid)
+        elif "_ta_replacevalue" in lowercase_labelid:
+            scrubbed_labelid = lowercase_labelid.replace("_ta_replacevalue","")
             scrubbed_labelids.append(scrubbed_labelid)
         else:
             scrubbed_labelids.append(lowercase_labelid)
 
     return scrubbed_labelids
-
-# -- Get all TestbenchLabel IDs, remove uneccessary characters
-# -- Set to lowercase 
-# -- Assign to dictionary (Framework LabelIds = Key and TestbenchLabel Ids = Value)
-import tkinter as tk
-from tkinter import filedialog
-import xml.etree.ElementTree as ET
-from fuzzywuzzy import fuzz
-from fuzzywuzzy import process
-from typing import List, Dict, Union # Added Union for clarity on return types
-
-# XML Namespace for parsing
-XIL_NAMESPACE = "http://www.asam.net/XIL/Mapping/2.2.0"
-NAMESPACES = {'ns0': XIL_NAMESPACE}
-
-# -- Selects an XML file to parse. The file should follow XIL format specified above--
-def select_xml_file() -> str:
-     """Opens a file dialog to select XML file."""
-     root = tk.Tk()
-     root.withdraw()  # Hide the main window
-     xml_path = filedialog.askopenfilename(
-         title="Select .xml file",
-         filetypes=[("xml files", "*.xml"), ("All files", "*.*")]
-     )
-     return xml_path
-
-# -- Extracts all framework labelID values from XML. These values are similar to the signal value as specified in a .dbc or .arxml --
-def extract_framework_labelids(xml_file: str) -> List[str]:
-     """Extracts all LabelId values from FrameworkLabel elements in the XML file."""
-     try:
-         tree = ET.parse(xml_file)
-         root = tree.getroot()
-         labelids = [elem.attrib['Id'] for elem in root.findall('.//ns0:FrameworkLabel', NAMESPACES)]
-         # print(labelids) # Optional: remove this print in production code
-         return labelids
-     except FileNotFoundError:
-         print(f"Error: XML file not found at '{xml_file}'")
-         return []
-     except ET.ParseError as e:
-         print(f"Error parsing XML file '{xml_file}': {e}")
-         return []
-     except Exception as e:
-         print(f"An unexpected error occurred in extract_framework_labelids: {e}") # Renamed function for clarity
-         return []
-
-# -- Scrub LabelIds by removing suffix and making them lowercase --
-def scrub_labelids(labelids: List[str]) -> List[str]:
-    scrubbed_list = []
-    for labelid in labelids:
-        lowercase_labelid = str(labelid).lower() # Ensure it's a string before operations
-
-        # Use a more robust check: remove suffix if it exists
-        if lowercase_labelid.endswith("_io_signal"):
-            scrubbed_id = lowercase_labelid.replace("_io_signal","")
-        elif lowercase_labelid.endswith("_ta_replacevalue"):
-            scrubbed_id = lowercase_labelid.replace("_ta_replacevalue","")
-        elif lowercase_labelid.endswith("_value_io_signal"): # Make sure order of checks is from longest to shortest if they can overlap
-            scrubbed_id = lowercase_labelid.replace("_value_io_signal","")
-        elif lowercase_labelid.endswith("_value_ta_replacevalue"):
-            scrubbed_id = lowercase_labelid.replace("_value_ta_replacevalue","")
-        else:
-            scrubbed_id = lowercase_labelid # No suffix to remove
-
-        scrubbed_list.append(scrubbed_id)
-    return scrubbed_list
 
 # -- Get all TestbenchLabel IDs, remove unnecessary characters
 # -- Set to lowercase
@@ -190,14 +126,13 @@ def match_testbench_to_framework_labels(xml_file: str, framework_labels: List[st
 
     except FileNotFoundError:
          print(f"Error: XML file not found at '{xml_file}'")
-         return {} # <--- CORRECTED: Changed from [] to {}
+         return {} 
     except ET.ParseError as e:
          print(f"Error parsing XML file '{xml_file}': {e}")
-         return {} # <--- CORRECTED: Changed from [] to {}
+         return {}
     except KeyError as e: # Catch if 'Id' attribute is missing from a TestbenchLabel
         print(f"Error: Missing expected 'Id' attribute in a TestbenchLabel element: {e}. Check XML structure.")
         return {}
     except Exception as e:
-         # Corrected the error message string here
          print(f"An unexpected error occurred in match_testbench_to_framework_labels: {e}")
-         return {} # <--- CORRECTED: Changed from [] to {}
+         return {}
