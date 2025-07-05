@@ -156,13 +156,13 @@ def load_model_components(model_file: str, vectorizer_file: str, label_encoder_f
         return model, vectorizer, label_encoder
     except FileNotFoundError as e:
         print(f"Error loading model components: {e}. One or more model files not found.")
-        return None
+        return None, None, None
     except pickle.UnpicklingError as e:
         print(f"Error unpickling model components: {e}. Files might be corrupted or from incompatible versions.")
-        return None
+        return None, None, None
     except Exception as e:
         print(f"An unexpected error occurred loading model components: {e}")
-        return None
+        return None, None, None
 
 def predict_framework_label_from_step(
     step_text: str,
