@@ -62,7 +62,7 @@ def train_and_save_model(data: List[Dict[str, str]], model_file: str, vectorizer
              return
 
         vectorizer = TfidfVectorizer(
-        ngram_range=(1,2,3),      # Use unigrams, bigrams and trigrams
+        ngram_range=(1,3),      # Use unigrams, bigrams and trigrams
         stop_words='english',    # Remove common English stopwords
         lowercase=True           # Convert all text to lowercase
         )
@@ -165,45 +165,49 @@ def load_model_components(model_file: str, vectorizer_file: str, label_encoder_f
         return None, None, None
 
 def predict_framework_label_from_step(
-    step_text: str,
     model: Optional[Any],
     vectorizer: Optional[TfidfVectorizer],
     label_encoder: Optional[LabelEncoder],
-    matches_dict, 
-    scenario_steps
-) -> Optional[str]:
+    matches_dict: dict, # Added type hint for clarity
+    scenario_steps: List[List[Tuple[str, str]]] # Added type hint for clarity
+) -> List[Tuple[List[Tuple[str, str]], Tuple[str, str], str]]: # Corrected return type hint
     """
     Predicts the most likely FrameworkLabel for a given scenario step text
     using the pre-trained machine learning model.
 
     Args:
-        step_text (str): The text of the scenario step (e.g., "click the login button").
         model (Optional[Any]): The loaded ML model (SGDClassifier or DummyClassifier).
         vectorizer (Optional[TfidfVectorizer]): The loaded TF-IDF vectorizer.
         label_encoder (Optional[LabelEncoder]): The loaded label encoder.
-        valid_framework_labels (List[str]): A list of all valid FrameworkLabel IDs
-                                             expected from your XML configuration.
-                                             The prediction will be validated against this list.
+        matches_dict (dict): A dictionary mapping predicted ML labels to their desired output values.
+        scenario_steps (List[List[Tuple[str, str]]]): A list of scenarios, where each scenario
+                                                     is a list of steps (step_id, step_text).
 
     Returns:
-        Optional[str]: The predicted FrameworkLabel ID if a valid prediction is made,
-                       otherwise None.
+        List[Tuple[List[Tuple[str, str]], Tuple[str, str], str]]: A list of tuples,
+        where each tuple contains:
+        - The full current scenario (list of steps)
+        - The specific step (tuple of step_id, step_text) that was processed
+        - The matched framework label from matches_dict
+        Returns an empty list if no predictions can be made or no matches are found.
     """
     model_match = []
+
+    # Initial checks for missing ML components
+    if not model or not vectorizer or not label_encoder:
+        print("[ML Predict] ML components are missing or not loaded. Cannot predict. Returning empty list.")
+        return [] # Return empty list, not None
+
+    # Check if the model/encoder are properly initialized for prediction
+    # Added vectorizer check for 'transform' method, as it's used later
+    if not (hasattr(model, 'predict') and hasattr(vectorizer, 'transform') and hasattr(label_encoder, 'inverse_transform') and len(label_encoder.classes_) > 0):
+        print("[ML Predict] ML model/encoder/vectorizer not fully initialized or not suitable for prediction. Returning empty list.")
+        return [] # Return empty list, not None
 
     for current_scenario in scenario_steps:
         for step in current_scenario:
             lowercase_step = step[1].lower()
             print(f"\n[ML Predict] Processing step: '{step[1]}'")
-
-            if not model or not vectorizer or not label_encoder:
-                print("[ML Predict] ML components are missing or not loaded. Cannot predict.")
-                return None
-
-            # Check if the model/encoder are properly initialized for prediction
-            if not (hasattr(model, 'predict') and hasattr(label_encoder, 'inverse_transform') and len(label_encoder.classes_) > 0):
-                print("[ML Predict] ML model/encoder not fully initialized or not suitable for prediction.")
-                return None
 
             try:
                 # Transform the input text into numerical features
@@ -215,15 +219,18 @@ def predict_framework_label_from_step(
                 # Convert the numerical prediction back to a human-readable label
                 predicted_label = label_encoder.inverse_transform(y_pred)[0]
 
-                # Validate the predicted label against the list of known FrameworkLabels
+                # Validate the predicted label against the list of known FrameworkLabels (matches_dict)
                 if predicted_label in matches_dict:
                     print(f"[ML Predict] Predicted FrameworkLabel: {predicted_label}")
-                    model_match.append(current_scenario,step,matches_dict[predicted_label])
-                    
+                    # Corrected append: appending a single tuple containing the three elements
+                    model_match.append((current_scenario, step, matches_dict[predicted_label]))
                 else:
-                    print(f"[ML Predict] Predicted label '{predicted_label}' not found in valid FrameworkLabels. Returning None.")
+                    # If predicted label is not in matches_dict, just print and continue to the next step
+                    print(f"[ML Predict] Predicted label '{predicted_label}' not found in matches_dict. Skipping this step for mapping.")
                     
             except Exception as e:
-                print(f"[ML Predict] Error during ML prediction: {e}")
-                return None
-    return model_match
+                print(f"[ML Predict] Error during ML prediction for step '{step[1]}': {e}. Skipping this step.")
+                # Do NOT return None here. Continue processing other steps.
+                # If an error happens for one step, it shouldn't stop all other valid predictions.
+    
+    return model_match # Return the accumulated list of matches

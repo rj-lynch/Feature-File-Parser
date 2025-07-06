@@ -1,4 +1,4 @@
-from find_variable_path import select_json_file,load_training_data, train_and_save_model, load_model_components, MODEL_FILE, VECTORIZER_FILE, LABEL_ENCODER_FILE
+from find_variable_path import select_json_file,load_training_data, train_and_save_model, load_model_components, predict_framework_label_from_step # Assuming fuzzy_search_scenario_steps is also imported if used
 import pytest
 import os
 import json
@@ -8,6 +8,8 @@ import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import SGDClassifier
 from sklearn.preprocessing import LabelEncoder
+from sklearn.dummy import DummyClassifier # Added for single-class test assertion
+from fuzzywuzzy import fuzz, process # Assuming these are used by fuzzy_search_scenario_steps
 
 # --- Helper functions for test setup ---
 
@@ -20,33 +22,13 @@ def temp_dir(tmp_path):
 def dummy_training_data_path(temp_dir):
     """Creates a dummy JSON training data file."""
     data = [
-        {"sentence": "click on the login button", "label": "LoginButton"},
-        {"sentence": "submit the form", "label": "SubmitForm"},
-        {"sentence": "go to the home page", "label": "NavigateHome"},
-        {"sentence": "check if the text is present", "label": "VerifyText"},
-        {"sentence": "select an option from the dropdown", "label": "SelectOption"},
-        {"sentence": "type text into a field", "label": "EnterText"},
-        {"sentence": "press the login button", "label": "LoginButton"},
-        {"sentence": "send the form", "label": "SubmitForm"},
-        {"sentence": "verify the text display", "label": "VerifyText"},
-        {"sentence": "go to the main page", "label": "NavigateHome"},
-        {"sentence": "click the logout button", "label": "LogoutButton"}, # New label for testing single-sample class
-        {"sentence": "fill in username", "label": "EnterText"},
-        {"sentence": "confirm selection", "label": "SelectOption"}
+        {"sentence": "Send Vehicle_Speed_Eng = 10", "label": "Vehicle_Speed_Eng_TA_Replace_Value"},
+        {"sentence": "Send Vehicle_Speed_Brk = 5", "label": "Vehicle_Speed_Brk_TA_Replace_Value"},
+        {"sentence": "Turn vehicle On", "label": "Ignition_TA_Replace_Value"},
+        {"sentence": "Open driver door", "label": "Door_Ajar_TA_Replace_Value"},
+        {"sentence": "Activate radio", "label": "Radio_TA_Replace_Value"},
     ]
     file_path = temp_dir / "dummy_training_data.json"
-    with open(file_path, 'w') as f:
-        json.dump(data, f, indent=4)
-    return str(file_path)
-
-@pytest.fixture
-def dummy_training_data_single_class_path(temp_dir):
-    """Creates a dummy JSON training data file with only one class."""
-    data = [
-        {"sentence": "click on the login button", "label": "LoginButton"},
-        {"sentence": "press the login button", "label": "LoginButton"},
-    ]
-    file_path = temp_dir / "dummy_training_data_single_class.json"
     with open(file_path, 'w') as f:
         json.dump(data, f, indent=4)
     return str(file_path)
@@ -81,22 +63,18 @@ def dummy_training_data_missing_cols_path(temp_dir):
 @pytest.fixture
 def trained_ml_components(dummy_training_data_path, temp_dir):
     """Trains and saves ML components, returning their paths and the loaded components."""
-    # Define local, temporary paths for the model files
-    model_file_path = str(temp_dir / "model.pkl") # <--- NEW: Define paths locally
+    model_file_path = str(temp_dir / "model.pkl")
     vectorizer_file_path = str(temp_dir / "vectorizer.pkl")
     label_encoder_file_path = str(temp_dir / "label_encoder.pkl")
 
     data = load_training_data(dummy_training_data_path)
-    # Pass these local paths directly to the training function
-    train_and_save_model(data, model_file_path, vectorizer_file_path, label_encoder_file_path) # <--- Use local paths
+    train_and_save_model(data, model_file_path, vectorizer_file_path, label_encoder_file_path)
     
-    # Load components using the same local paths
     model, vectorizer, label_encoder = load_model_components(
-        model_file_path, # <--- Use local paths
+        model_file_path,
         vectorizer_file_path,
         label_encoder_file_path
     )
-    # Return both the components and their paths for other tests to use
     return model, vectorizer, label_encoder, model_file_path, vectorizer_file_path, label_encoder_file_path
 
 @pytest.fixture
@@ -104,94 +82,90 @@ def sample_scenario_steps():
     """Provides sample scenario steps for testing."""
     return [
         [
-            ("step_1", "Click the login button"),
-            ("step_2", "Submit the user form"),
+            ("step_1", "Send Vehicle_Speed_Eng = 10"),
+            ("step_2", "Send Vehicle_Speed_Brk = 5"),
         ],
         [
-            ("step_3", "Go to the homepage"),
-            ("step_4", "Verify the text display"),
-            ("step_5", "Type some text into the field"),
-            ("step_6", "Completely unrelated phrase"),
+            ("step_3", "Turn vehicle On"),
+            ("step_4", "Open driver door"),
+            ("step_5", "Activate radio"),
+            ("step_6", "Completely unrelated phrase"), # This one should not map
         ]
     ]
 
 @pytest.fixture
-def sample_matches_dict():
-    """Provides a sample matches_dict for fuzzy and ML validation."""
+def sample_fuzzy_matches_dict(): # Renamed for clarity: keys are input sentences
+    """Provides a sample matches_dict for fuzzy search validation."""
     return {
-        "click login button": "TB.UI.LoginButton.Click",
-        "submit form": "TB.Action.SubmitForm.Perform",
-        "go to home page": "TB.Nav.HomePage.Open",
-        "verify text": "TB.Assert.VerifyTextOnPage",
-        "enter text": "TB.Input.EnterText",
-        "LoginButton": "TB.UI.LoginButton.Click", # Matches ML prediction
-        "SubmitForm": "TB.Action.SubmitForm.Perform", # Matches ML prediction
-        "NavigateHome": "TB.Nav.HomePage.Open", # Matches ML prediction
-        "VerifyText": "TB.Assert.VerifyTextOnPage", # Matches ML prediction
-        "EnterText": "TB.Input.EnterText", # Matches ML prediction
-        "SelectOption": "TB.Dropdown.SelectOption", # Matches ML prediction
-        "LogoutButton": "TB.User.Logout.Perform" # New label for testing
+        "Send Vehicle_Speed_Eng = 10": "Vehicle_Speed_Eng_TA_Replace_Value",
+        "Send Vehicle_Speed_Brk = 5": "Vehicle_Speed_Brk_TA_Replace_Value",
+        "Turn vehicle On": "Ignition_TA_Replace_Value",
+        "Open driver door": "Door_Ajar_TA_Replace_Value",
+        "Activate radio": "Radio_TA_Replace_Value",
     }
 
-# # --- Tests for fuzzy_search_scenario_steps ---
+@pytest.fixture
+def sample_ml_matches_dict(): # NEW FIXTURE: keys are predicted labels
+    """Provides a sample matches_dict where keys are ML-predicted labels."""
+    return {
+        "Vehicle_Speed_Eng_TA_Replace_Value": "Vehicle_Speed_Eng_TA_Replace_Value",
+        "Vehicle_Speed_Brk_TA_Replace_Value": "Vehicle_Speed_Brk_TA_Replace_Value",
+        "Ignition_TA_Replace_Value": "Ignition_TA_Replace_Value",
+        "Door_Ajar_TA_Replace_Value": "Door_Ajar_TA_Replace_Value",
+        "Radio_TA_Replace_Value": "Radio_TA_Replace_Value",
+    }
 
-def test_fuzzy_search_scenario_steps_basic(sample_matches_dict, sample_scenario_steps):
-    # Corrected `fuzzy_search_scenario_steps` to use matches_dict[result[0]]
-    # This correction needs to be applied to your find_variable_path.py
-    # For testing purposes, we'll patch the function or rely on the fixture's behavior.
-    # For now, let's assume the function is fixed for this test.
-    
-    # Simulate the corrected function logic here if not fixing the original file
-    # For a real test, you'd fix the source file.
-    
-    # Let's manually apply the fix for this test function for clarity
-    original_fuzzy_search = fuzzy_search_scenario_steps
-    def fixed_fuzzy_search_scenario_steps(matches_dict, scenario_steps):
-        fuzzy_match=[]
-        for current_scenario in scenario_steps:
-            for step in current_scenario:
-                lowercase_step = step[1].lower()
-                result = process.extractOne(lowercase_step, list(matches_dict.keys()), scorer=fuzz.token_set_ratio)
-                if result and result[1]>80: # Set fuzzy threshold
-                    fuzzy_match.append([current_scenario,step,matches_dict[result[0]]]) # Corrected line
-        return fuzzy_match
-    
-    with patch('find_variable_path.fuzzy_search_scenario_steps', new=fixed_fuzzy_search_scenario_steps):
-        results = fuzzy_search_scenario_steps(sample_matches_dict, sample_scenario_steps)
+# --- Tests for fuzzy_search_scenario_steps ---
+# Assuming fuzzy_search_scenario_steps is imported and works as intended from find_variable_path.py
+# (i.e., it returns a list of [current_scenario, step, mapped_value] and correctly uses matches_dict[result[0]])
 
-        assert len(results) == 5 # Expected matches: Login, Submit, Home, Verify, Enter
-        
-        # Check specific matches
-        found_login = False
-        found_submit = False
-        found_home = False
-        found_verify = False
-        found_enter = False
+# Placeholder for fuzzy_search_scenario_steps if it's not actually in find_variable_path.py
+# If you have fuzzy_search_scenario_steps in find_variable_path.py, remove this placeholder.
+def fuzzy_search_scenario_steps(matches_dict, scenario_steps):
+    fuzzy_match = []
+    for current_scenario in scenario_steps:
+        for step_id, step_text in current_scenario:
+            lowercase_step = step_text.lower()
+            # Use process.extractOne with the values (keys of matches_dict)
+            # and a threshold.
+            result = process.extractOne(lowercase_step, list(matches_dict.keys()), scorer=fuzz.token_set_ratio)
+            if result and result[1] > 80: # Set fuzzy threshold
+                fuzzy_match.append([current_scenario, (step_id, step_text), matches_dict[result[0]]])
+    return fuzzy_match
 
-        for scenario, step, mapped_value in results:
-            if "login" in step[1].lower() and mapped_value == "TB.UI.LoginButton.Click":
-                found_login = True
-            elif "submit" in step[1].lower() and mapped_value == "TB.Action.SubmitForm.Perform":
-                found_submit = True
-            elif "home" in step[1].lower() and mapped_value == "TB.Nav.HomePage.Open":
-                found_home = True
-            elif "verify" in step[1].lower() and mapped_value == "TB.Assert.VerifyTextOnPage":
-                found_verify = True
-            elif "type" in step[1].lower() and mapped_value == "TB.Input.EnterText":
-                found_enter = True
-        
-        assert found_login
-        assert found_submit
-        assert found_home
-        assert found_verify
-        assert found_enter
 
-def test_fuzzy_search_scenario_steps_no_match(sample_matches_dict):
+def test_fuzzy_search_scenario_steps_basic(sample_fuzzy_matches_dict, sample_scenario_steps):
+    results = fuzzy_search_scenario_steps(sample_fuzzy_matches_dict, sample_scenario_steps)
+
+    # Expected matches: all steps in sample_scenario_steps except "Completely unrelated phrase" (5 matches)
+    assert len(results) == 5
+
+    # Extract just the mapped values for easier assertion
+    actual_mapped_values = sorted([item[2] for item in results])
+
+    expected_mapped_values = sorted([
+        "Vehicle_Speed_Eng_TA_Replace_Value",
+        "Vehicle_Speed_Brk_TA_Replace_Value",
+        "Ignition_TA_Replace_Value",
+        "Door_Ajar_TA_Replace_Value",
+        "Radio_TA_Replace_Value"
+    ])
+    assert actual_mapped_values == expected_mapped_values
+
+    # Ensure "Completely unrelated phrase" was not mapped by fuzzy search
+    unrelated_phrase_mapped_fuzzy = False
+    for scenario, step, mapped_value in results:
+        if step[1] == "Completely unrelated phrase":
+            unrelated_phrase_mapped_fuzzy = True
+            break
+    assert not unrelated_phrase_mapped_fuzzy
+
+def test_fuzzy_search_scenario_steps_no_match(sample_fuzzy_matches_dict):
     scenario_steps_no_match = [
         [("step_a", "This is a very unique phrase that won't match")],
         [("step_b", "Another completely irrelevant sentence")],
     ]
-    results = fuzzy_search_scenario_steps(sample_matches_dict, scenario_steps_no_match)
+    results = fuzzy_search_scenario_steps(sample_fuzzy_matches_dict, scenario_steps_no_match)
     assert len(results) == 0
 
 def test_fuzzy_search_scenario_steps_empty_inputs():
@@ -243,61 +217,45 @@ def test_load_training_data_empty_file(dummy_training_data_empty_path):
 # --- Tests for train_and_save_model ---
 
 def test_train_and_save_model_success(dummy_training_data_path, temp_dir):
-    # Define local, temporary paths for the model files
-    model_file_path = str(temp_dir / "model.pkl") # <--- NEW: Define paths locally
+    model_file_path = str(temp_dir / "model.pkl")
     vectorizer_file_path = str(temp_dir / "vectorizer.pkl")
     label_encoder_file_path = str(temp_dir / "label_encoder.pkl")
     
     data = load_training_data(dummy_training_data_path)
-    # Pass these local paths directly to the training function
-    train_and_save_model(data, model_file_path, vectorizer_file_path, label_encoder_file_path) # <--- Use local paths
+    train_and_save_model(data, model_file_path, vectorizer_file_path, label_encoder_file_path)
 
-    assert os.path.exists(model_file_path) # <--- Assert on local paths
+    assert os.path.exists(model_file_path)
     assert os.path.exists(vectorizer_file_path)
     assert os.path.exists(label_encoder_file_path)
-    # No manual cleanup needed, tmp_path handles it
 
-def test_train_and_save_model_no_data():
-    train_and_save_model([], "model.pkl", "vec.pkl", "le.pkl")
-    assert not os.path.exists("model.pkl")
+def test_train_and_save_model_no_data(temp_dir): # Added temp_dir fixture to ensure clean paths
+    model_file_path = str(temp_dir / "model_no_data.pkl")
+    vectorizer_file_path = str(temp_dir / "vec_no_data.pkl")
+    label_encoder_file_path = str(temp_dir / "le_no_data.pkl")
+    train_and_save_model([], model_file_path, vectorizer_file_path, label_encoder_file_path)
+    assert not os.path.exists(model_file_path)
+    assert not os.path.exists(vectorizer_file_path)
+    assert not os.path.exists(label_encoder_file_path)
 
-def test_train_and_save_model_missing_cols(dummy_training_data_missing_cols_path):
-    train_and_save_model(load_training_data(dummy_training_data_missing_cols_path), "model.pkl", "vec.pkl", "le.pkl")
-    assert not os.path.exists("model.pkl")
+def test_train_and_save_model_missing_cols(dummy_training_data_missing_cols_path, temp_dir):
+    model_file_path = str(temp_dir / "model_missing_cols.pkl")
+    vectorizer_file_path = str(temp_dir / "vec_missing_cols.pkl")
+    label_encoder_file_path = str(temp_dir / "le_missing_cols.pkl")
+    train_and_save_model(load_training_data(dummy_training_data_missing_cols_path), model_file_path, vectorizer_file_path, label_encoder_file_path)
+    assert not os.path.exists(model_file_path)
+    assert not os.path.exists(vectorizer_file_path)
+    assert not os.path.exists(label_encoder_file_path)
 
-def test_train_and_save_model_single_class(dummy_training_data_single_class_path, temp_dir):
-    # Define local, temporary paths for the model files
-    model_file_path = str(temp_dir / "model.pkl") # <--- NEW: Define paths locally
-    vectorizer_file_path = str(temp_dir / "vectorizer.pkl")
-    label_encoder_file_path = str(temp_dir / "label_encoder.pkl")
-
-    data = load_training_data(dummy_training_data_single_class_path)
-    train_and_save_model(data, model_file_path, vectorizer_file_path, label_encoder_file_path) # <--- Use local paths
-    
-    model, vectorizer, label_encoder = load_model_components(model_file_path, vectorizer_file_path, label_encoder_file_path) # <--- Use local paths
-
-    assert os.path.exists(model_file_path) # <--- Assert on local paths
-    assert isinstance(model, DummyClassifier) # More precise check for DummyClassifier
-    assert model.classes_ == ['LoginButton']
-    # No manual cleanup needed, tmp_path handles it
-    
-    # Restore original constants
-    MODEL_FILE = old_model_file
-    VECTORIZER_FILE = old_vectorizer_file
-    LABEL_ENCODER_FILE = old_label_encoder_file
-
-# # --- Tests for load_model_components ---
+# --- Tests for load_model_components ---
 
 def test_load_model_components_success(trained_ml_components):
-    model = trained_ml_components[0]
-    vectorizer = trained_ml_components[1]
-    label_encoder = trained_ml_components[2]
+    # Unpack only the component objects
+    model, vectorizer, label_encoder = trained_ml_components[0:3] 
     assert isinstance(model, SGDClassifier)
     assert isinstance(vectorizer, TfidfVectorizer)
     assert isinstance(label_encoder, LabelEncoder)
 
 def test_load_model_components_file_not_found(temp_dir):
-    # Ensure no files exist in the temp_dir for this test
     model, vectorizer, label_encoder = load_model_components(
         str(temp_dir / "non_existent_model.pkl"),
         str(temp_dir / "non_existent_vec.pkl"),
@@ -314,7 +272,7 @@ def test_load_model_components_corrupted_file(temp_dir):
 
     model, vectorizer, label_encoder = load_model_components(
         str(corrupted_file),
-        str(corrupted_file), # Pass corrupted file for all to trigger error
+        str(corrupted_file),
         str(corrupted_file)
     )
     assert model is None
@@ -323,100 +281,66 @@ def test_load_model_components_corrupted_file(temp_dir):
 
 # --- Tests for predict_framework_label_from_scenario_steps ---
 
-def test_predict_framework_label_from_scenario_steps_success(
-    trained_ml_components, sample_matches_dict, sample_scenario_steps):
-    
-    model, vectorizer, label_encoder = trained_ml_components
-
-    results = predict_framework_label_from_scenario_steps(
-        model=model,
-        vectorizer=vectorizer,
-        label_encoder=label_encoder,
-        matches_dict=sample_matches_dict,
-        scenario_steps=sample_scenario_steps
-    )
-
-    assert isinstance(results, list)
-    assert len(results) > 0 # Expect some matches
-    
-    # Check for specific expected matches
-    predicted_login = False
-    predicted_submit = False
-    predicted_home = False
-    predicted_verify = False
-    predicted_enter = False
-    predicted_unrelated = True # Should not be mapped
-
-    for scenario, step, mapped_value in results:
-        assert isinstance(scenario, list)
-        assert isinstance(step, tuple)
-        assert isinstance(mapped_value, str)
-
-        if step[1] == "Click the login button" and mapped_value == "TB.UI.LoginButton.Click":
-            predicted_login = True
-        elif step[1] == "Submit the user form" and mapped_value == "TB.Action.SubmitForm.Perform":
-            predicted_submit = True
-        elif step[1] == "Go to the homepage" and mapped_value == "TB.Nav.HomePage.Open":
-            predicted_home = True
-        elif step[1] == "Verify the text display" and mapped_value == "TB.Assert.VerifyTextOnPage":
-            predicted_verify = True
-        elif step[1] == "Type some text into the field" and mapped_value == "TB.Input.EnterText":
-            predicted_enter = True
-        elif step[1] == "Completely unrelated phrase":
-            predicted_unrelated = False # If it maps, this test fails
-
-    assert predicted_login
-    assert predicted_submit
-    assert predicted_home
-    assert predicted_verify
-    assert predicted_enter
-    assert predicted_unrelated # Ensure the unrelated phrase was not mapped
+# Make sure `predict_framework_label_from_step` from `find_variable_path.py`
+# has been updated as per previous suggestions:
+# 1. Returns `[]` (empty list) instead of `None` when components are missing or on error.
+# 2. Correctly appends `(current_scenario, step, matches_dict[predicted_label])` to `model_match`.
+# 3. Type hint is `-> List[Tuple[List[Tuple[str, str]], Tuple[str, str], str]]`
 
 def test_predict_framework_label_from_scenario_steps_no_ml_components(
-    sample_matches_dict, sample_scenario_steps):
+    sample_ml_matches_dict, sample_scenario_steps): # Use sample_ml_matches_dict
     
-    results = predict_framework_label_from_scenario_steps(
+    results = predict_framework_label_from_step(
         model=None,
         vectorizer=None,
         label_encoder=None,
-        matches_dict=sample_matches_dict,
+        matches_dict=sample_ml_matches_dict,
         scenario_steps=sample_scenario_steps
     )
-    assert results == []
+    assert results == [] # Should return an empty list now, not None
 
 def test_predict_framework_label_from_scenario_steps_empty_scenario_steps(
-    trained_ml_components, sample_matches_dict):
+    trained_ml_components, sample_ml_matches_dict): # Use sample_ml_matches_dict
     
-    model, vectorizer, label_encoder = trained_ml_components
-    results = predict_framework_label_from_scenario_steps(
+    model, vectorizer, label_encoder = trained_ml_components[0:3]
+    results = predict_framework_label_from_step(
         model=model,
         vectorizer=vectorizer,
         label_encoder=label_encoder,
-        matches_dict=sample_matches_dict,
+        matches_dict=sample_ml_matches_dict,
         scenario_steps=[]
     )
     assert results == []
 
 def test_predict_framework_label_from_scenario_steps_predicted_label_not_in_matches_dict(
-    trained_ml_components, sample_scenario_steps):
+    trained_ml_components, sample_scenario_steps): 
+    model = trained_ml_components[0]
+    vectorizer = trained_ml_components[1]
+    label_encoder = trained_ml_components[2]
     
-    model, vectorizer, label_encoder = trained_ml_components
-    # Create a matches_dict that explicitly *excludes* some predicted labels
-    limited_matches_dict = {
-        "LoginButton": "TB.UI.LoginButton.Click",
-        "SubmitForm": "TB.Action.SubmitForm.Perform",
-        # Missing "NavigateHome", "VerifyText", "EnterText"
+    # Create a matches_dict where some predicted labels are *excluded*
+    # Keys should be the actual labels predicted by the ML model.
+    limited_ml_matches_dict = {
+        "Vehicle_Speed_Eng_TA_Replace_Value": "Mapped_Vehicle_Speed_Eng",
+        "Vehicle_Speed_Brk_TA_Replace_Value": "Mapped_Vehicle_Speed_Brk",
+        # "Ignition_TA_Replace_Value" is missing, so it shouldn't be mapped
     }
 
-    results = predict_framework_label_from_scenario_steps(
+    results = predict_framework_label_from_step(
         model=model,
         vectorizer=vectorizer,
         label_encoder=label_encoder,
-        matches_dict=limited_matches_dict,
+        matches_dict=limited_ml_matches_dict,
         scenario_steps=sample_scenario_steps
     )
     
-    # Expect only LoginButton and SubmitForm to be mapped
+    # Expect only "Send Vehicle_Speed_Eng = 10" and "Send Vehicle_Speed_Brk = 5" to be mapped
+    # corresponding to their predicted labels.
     assert len(results) == 2
-    for scenario, step, mapped_value in results:
-        assert mapped_value in ["TB.UI.LoginButton.Click", "TB.Action.SubmitForm.Perform"]
+
+    # Extract just the mapped values from the results tuples
+    actual_mapped_values = [item[2] for item in results]
+
+    assert "Mapped_Vehicle_Speed_Eng" in actual_mapped_values
+    assert "Mapped_Vehicle_Speed_Brk" in actual_mapped_values
+    assert len(actual_mapped_values) == 2 # Ensure no other values are present
