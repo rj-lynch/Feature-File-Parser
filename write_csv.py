@@ -26,7 +26,7 @@ def write_steps_to_csv(
             for mapped_scenario in mapped_scenarios:
                     scenario_info = scenario_steps[mapped_scenario[0]]
                     # Write the data row to the CSV file
-                    writer.writerow([mapped_scenario[0], mapped_scenario[1], mapped_scenario[2],scenario_info[2] , scenario_info[3], mapped_scenario[3]])
+                    writer.writerow([mapped_scenario[0], mapped_scenario[1], mapped_scenario[2],scenario_info[2] , mapped_scenario[3], mapped_scenario[3]])
 
         # If the loop completes without errors, print success message
         print(f"Gherkin steps, value (converted), latency, and variable paths written to {csv_filename}")

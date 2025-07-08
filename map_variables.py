@@ -3,7 +3,7 @@ from fuzzywuzzy import process
 
 # --- Fuzzy search framework labelIDs to find correct Testbench ID.
 #  --- If no matches are found use ML to select ID instead.
-def map_variables_(matches_dict, model_matches, scenarios):
+def map_variables(matches_dict, model_matches, scenarios):
     framework_labels_from_xml = list(matches_dict.keys())
     mapped_scenarios = []
     for scenario in scenarios:

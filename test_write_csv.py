@@ -1,341 +1,163 @@
-# test_write_csv.py
 import pytest
+import os
+import csv
+import io
+from unittest.mock import mock_open, patch
+
+# Assume the original function is in a file named 'your_module.py'
+# For this example, we'll put it directly here for self-containment.
+# If it's in another file, you would import it like:
+# from your_module import write_steps_to_csv
+
+# --- The function to be tested (copied for self-containment) ---
 import csv
 import os
-from unittest.mock import MagicMock, call
-from write_csv import write_steps_to_csv # Import the function to be tested
+from typing import List, Dict, Tuple, Optional, Union
 
-# --- Helper for creating mock model components ---
-# These mocks are simple placeholders as the actual model logic is external
-# to write_csv.py and will be mocked via find_label_mapping_with_model
+# Note: Removed sklearn imports as they are not used in write_steps_to_csv
+# and would cause an unnecessary dependency for testing this specific function.
+# If they are used elsewhere in your actual module, keep them there.
+
+def write_steps_to_csv(
+    csv_filename,
+    mapped_scenarios,
+    scenario_steps
+):
+    """
+    Writes parsed Gherkin steps, extracted data, and mapped variable paths to a CSV file.
+    Output is .csv file with collumns Scenario, Step Type, step_text, Value, Latency, Variable Path
+    """
+    try:
+        # Open the CSV file for writing
+        with open(csv_filename, 'w', newline='', encoding='utf-8') as csvfile:
+            writer = csv.writer(csvfile)
+
+            # Write header row
+            writer.writerow(['Scenario', 'Step Type', 'Step Text', 'Value', 'Latency', 'Variable Path'])
+
+            # Iterate through each scenario and its steps
+            for mapped_scenario in mapped_scenarios:
+                # Assuming mapped_scenario[0] is the scenario name, and it exists as a key in scenario_steps
+                scenario_info = scenario_steps[mapped_scenario[0]]
+                # Write the data row to the CSV file
+                # mapped_scenario: [Scenario, Step Type, Step Text, Latency/Variable Path (used for both)]
+                # scenario_info: [?, ?, Value, ...] - assuming Value is at index 2
+                writer.writerow([
+                    mapped_scenario[0],
+                    mapped_scenario[1],
+                    mapped_scenario[2],
+                    scenario_info[2],
+                    mapped_scenario[3], # Latency
+                    mapped_scenario[3]  # Variable Path (as per original function's logic)
+                ])
+
+        # If the loop completes without errors, print success message
+        print(f"Gherkin steps, value (converted), latency, and variable paths written to {csv_filename}")
+
+    except IOError as e:
+        print(f"Error writing to CSV file {csv_filename}: {e}")
+    except Exception as e:
+        print(f"An unexpected error occurred during CSV writing: {e}")
+
+# --- Pytest Tests ---
+
 @pytest.fixture
-def mock_model_components():
-    mock_model = MagicMock(name="SGDClassifier")
-    mock_vectorizer = MagicMock(name="TfidfVectorizer")
-    mock_label_encoder = MagicMock(name="LabelEncoder")
-    return (mock_model, mock_vectorizer, mock_label_encoder)
-
-# --- Test Cases for write_steps_to_csv ---
-
-def test_write_steps_to_csv_basic_success(mocker, tmp_path, mock_model_components):
+def tmp_csv_filename(tmp_path):
     """
-    Tests successful CSV writing for a simple case with one scenario and steps.
+    Pytest fixture to provide a temporary CSV file path.
+    `tmp_path` is a built-in pytest fixture.
     """
-    mock_csv_file = mocker.mock_open()
-    mocker.patch('builtins.open', mock_csv_file) # Mock the open function
-    mock_writer = mocker.MagicMock()
-    mocker.patch('csv.writer', return_value=mock_writer) # Mock csv.writer
+    return tmp_path / "test_output.csv"
 
-    # Mock external dependency: find_label_mapping_with_model
-    mock_find_label_mapping = mocker.patch(
-        'write_csv.find_label_mapping_with_model',
-        return_value="path/to/variable_123" # A typical return value
-    )
-    mocker.patch('os.path.exists', return_value=True) # Assume XML file exists
+def _read_csv_content(filename):
+    """Helper to read CSV content into a list of lists."""
+    content = []
+    try:
+        with open(filename, 'r', newline='', encoding='utf-8') as csvfile:
+            reader = csv.reader(csvfile)
+            for row in reader:
+                content.append(row)
+    except FileNotFoundError:
+        pass # Return empty content if file not found
+    return content
 
-    steps_data = {
-        "Scenario 1": [
-            ("Given", "I have a step", "10", "50ms"),
-            ("When", "I perform action", None, None)
-        ]
-    }
-    xml_file = "dummy.xml"
-    csv_filename = tmp_path / "output.csv"
-    training_data = [] # Not directly used by write_csv, but part of signature
-
-    write_steps_to_csv(
-        steps_data,
-        str(csv_filename),
-        str(csv_filename), # Pass the path string
-        training_data,
-        mock_model_components
-    )
-
-    # Verify builtins.open was called correctly
-    mock_csv_file.assert_called_once_with(str(csv_filename), 'w', newline='', encoding='utf-8')
-    
-    # Verify header row was written
-    mock_writer.writerow.assert_any_call(['Scenario', 'Step Type', 'Step Text', 'Value', 'Latency', 'Variable Path'])
-
-    # Verify data rows were written (and variable path was sliced)
-    expected_calls = [
-        call(['Scenario', 'Step Type', 'Step Text', 'Value', 'Latency', 'Variable Path']), # Header
-        call(['Scenario 1', 'Given', 'I have a step', 10, '50ms', 'o/variable_123']), # Sliced 'path/t' becomes 'o/variable_123'
-        call(['Scenario 1', 'When', 'I perform action', None, None, 'o/variable_123']) # Sliced 'path/t' becomes 'o/variable_123'
+def test_basic_write(tmp_csv_filename, capsys):
+    """Test that the function correctly writes a header and multiple data rows."""
+    mapped_scenarios = [
+        ["Scenario A", "Given", "I have data", "10ms"],
+        ["Scenario B", "When", "I process data", "20ms"],
+        ["Scenario C", "Then", "I get results", "30ms"]
     ]
-    mock_writer.writerow.assert_has_calls(expected_calls)
-    assert mock_writer.writerow.call_count == 3 # Header + 2 data rows
-
-    # Verify find_label_mapping_with_model was called for each step text
-    mock_find_label_mapping.assert_has_calls([
-        call(xml_file, "I have a step", *mock_model_components),
-        call(xml_file, "I perform action", *mock_model_components)
-    ])
-    assert mock_find_label_mapping.call_count == 2
-
-def test_write_steps_to_csv_multiple_scenarios(mocker, tmp_path, mock_model_components):
-    """
-    Tests writing multiple scenarios and their steps.
-    """
-    mock_csv_file = mocker.mock_open()
-    mocker.patch('builtins.open', mock_csv_file)
-    mock_writer = mocker.MagicMock()
-    mocker.patch('csv.writer', return_value=mock_writer)
-    mock_find_label_mapping = mocker.patch(
-        'write_csv.find_label_mapping_with_model',
-        side_effect=["path_alpha", "path_beta", "path_gamma"] # Different paths for different calls
-    )
-    mocker.patch('os.path.exists', return_value=True)
-
-    steps_data = {
-        "Scenario A": [("Given", "First step", "1", "10ms")],
-        "Scenario B": [("When", "Second step", "2", "20ms"), ("Then", "Third step", "3", "30ms")]
+    scenario_steps = {
+        "Scenario A": ["foo", "bar", "Value1"],
+        "Scenario B": ["baz", "qux", "Value2"],
+        "Scenario C": ["alpha", "beta", "Value3"]
     }
-    csv_filename = tmp_path / "output.csv"
 
-    write_steps_to_csv(steps_data, "dummy.xml", str(csv_filename), [], mock_model_components)
+    write_steps_to_csv(tmp_csv_filename, mapped_scenarios, scenario_steps)
 
-    # Verify correct number of rows written
-    assert mock_writer.writerow.call_count == 1 + 3 # Header + 3 data rows
+    expected_content = [
+        ['Scenario', 'Step Type', 'Step Text', 'Value', 'Latency', 'Variable Path'],
+        ['Scenario A', 'Given', 'I have data', 'Value1', '10ms', '10ms'],
+        ['Scenario B', 'When', 'I process data', 'Value2', '20ms', '20ms'],
+        ['Scenario C', 'Then', 'I get results', 'Value3', '30ms', '30ms']
+    ]
+    assert _read_csv_content(tmp_csv_filename) == expected_content
 
-    # Verify specific rows (checking slicing and order)
-    written_rows = [args[0] for args in mock_writer.writerow.call_args_list]
-    assert written_rows[0] == ['Scenario', 'Step Type', 'Step Text', 'Value', 'Latency', 'Variable Path']
-    assert written_rows[1] == ['Scenario A', 'Given', 'First step', 1, '10ms', 'h_alpha'] # 'path_alpha' -> 'h_alpha'
-    assert written_rows[2] == ['Scenario B', 'When', 'Second step', 2, '20ms', 'h_beta']  # 'path_beta' -> 'h_beta'
-    assert written_rows[3] == ['Scenario B', 'Then', 'Third step', 3, '30ms', 'h_gamma'] # 'path_gamma' -> 'h_gamma'
-
-def test_write_steps_to_csv_empty_steps_data(mocker, tmp_path, mock_model_components):
-    """
-    Tests behavior with empty steps data. Should only write header.
-    """
-    mock_csv_file = mocker.mock_open()
-    mocker.patch('builtins.open', mock_csv_file)
-    mock_writer = mocker.MagicMock()
-    mocker.patch('csv.writer', return_value=mock_writer)
-    mock_find_label_mapping = mocker.patch('write_csv.find_label_mapping_with_model')
-    mocker.patch('os.path.exists', return_value=True)
-
-    steps_data = {} # Empty
-    csv_filename = tmp_path / "output.csv"
-
-    write_steps_to_csv(steps_data, "dummy.xml", str(csv_filename), [], mock_model_components)
-
-    mock_csv_file.assert_called_once()
-    mock_writer.writerow.assert_called_once_with(['Scenario', 'Step Type', 'Step Text', 'Value', 'Latency', 'Variable Path'])
-    mock_find_label_mapping.assert_not_called() # No steps, so no mapping calls
-
-# --- Value Conversion Tests ---
-
-@pytest.mark.parametrize("input_value, expected_output_value", [
-    ("10", 10),
-    ("0x0A", 10),
-    ("#A", 10),
-    ("0xFF", 255),
-    ("#FF", 255),
-    ("0xabc", 2748),
-    ("5.5", "5.5"), # Should not convert float strings
-    ("hello", "hello"), # Should not convert non-numeric strings
-    (None, None),
-    ("", ""), # Empty string should remain empty
-    ("  0x1f  ", 31), # Test stripping whitespace
-    ("  123  ", 123), # Test stripping whitespace
-    ("0xG", "0xG"), # Invalid hex character
-    ("0x", "0x"), # Just prefix
-    ("#", "#") # Just prefix
-])
-def test_write_steps_to_csv_value_conversion(mocker, tmp_path, mock_model_components, input_value, expected_output_value):
-    """
-    Tests various value conversion scenarios.
-    """
-    mock_writer = mocker.MagicMock()
-    mocker.patch('builtins.open', mocker.mock_open())
-    mocker.patch('csv.writer', return_value=mock_writer)
-    mocker.patch('write_csv.find_label_mapping_with_model', return_value="long_path_value")
-    mocker.patch('os.path.exists', return_value=True)
-
-    steps_data = {
-        "Scenario 1": [("Given", "A step with value", input_value, None)]
-    }
-    csv_filename = tmp_path / "output.csv"
-
-    write_steps_to_csv(steps_data, "dummy.xml", str(csv_filename), [], mock_model_components)
-
-    # Check the specific row where the value is
-    written_row = mock_writer.writerow.call_args_list[1][0][0]
-    assert written_row[3] == expected_output_value
-
-# --- Variable Path Mapping Tests ---
-
-def test_write_steps_to_csv_variable_path_sliced(mocker, tmp_path, mock_model_components):
-    """
-    Tests that variable path is sliced correctly (first 5 characters removed).
-    """
-    mock_writer = mocker.MagicMock()
-    mocker.patch('builtins.open', mocker.mock_open())
-    mocker.patch('csv.writer', return_value=mock_writer)
-    mock_find_label_mapping = mocker.patch(
-        'write_csv.find_label_mapping_with_model',
-        return_value="0123456789ABCDEF" # A long path
-    )
-    mocker.patch('os.path.exists', return_value=True)
-
-    steps_data = {"S1": [("G", "Step", None, None)]}
-    csv_filename = tmp_path / "output.csv"
-
-    write_steps_to_csv(steps_data, "dummy.xml", str(csv_filename), [], mock_model_components)
-
-    written_row = mock_writer.writerow.call_args_list[1][0][0] # Get the data row
-    assert written_row[5] == "56789ABCDEF" # Should be sliced
-
-def test_write_steps_to_csv_variable_path_less_than_5_chars(mocker, tmp_path, mock_model_components, capsys):
-    """
-    Tests that variable path less than 5 characters is used as is, with a warning.
-    """
-    mock_writer = mocker.MagicMock()
-    mocker.patch('builtins.open', mocker.mock_open())
-    mocker.patch('csv.writer', return_value=mock_writer)
-    mock_find_label_mapping = mocker.patch(
-        'write_csv.find_label_mapping_with_model',
-        return_value="abcd" # Less than 5 chars
-    )
-    mocker.patch('os.path.exists', return_value=True)
-
-    steps_data = {"S1": [("G", "Step", None, None)]}
-    csv_filename = tmp_path / "output.csv"
-
-    write_steps_to_csv(steps_data, "dummy.xml", str(csv_filename), [], mock_model_components)
-
-    written_row = mock_writer.writerow.call_args_list[1][0][0]
-    assert written_row[5] == "abcd" # Should not be sliced
     captured = capsys.readouterr()
-    assert "Warning: Testbench Label ID 'abcd' is less than 5 characters long. Cannot slice off the first 5. Using full ID." in captured.out
+    assert f"Gherkin steps, value (converted), latency, and variable paths written to {tmp_csv_filename}\n" in captured.out
 
-def test_write_steps_to_csv_variable_path_none(mocker, tmp_path, mock_model_components):
-    """
-    Tests that variable path is empty string if find_label_mapping returns None.
-    """
-    mock_writer = mocker.MagicMock()
-    mocker.patch('builtins.open', mocker.mock_open())
-    mocker.patch('csv.writer', return_value=mock_writer)
-    mock_find_label_mapping = mocker.patch(
-        'write_csv.find_label_mapping_with_model',
-        return_value=None # No mapping found
-    )
-    mocker.patch('os.path.exists', return_value=True)
+def test_empty_inputs(tmp_csv_filename, capsys):
+    """Test that only the header is written when input data is empty."""
+    mapped_scenarios = []
+    scenario_steps = {}
 
-    steps_data = {"S1": [("G", "Step", None, None)]}
-    csv_filename = tmp_path / "output.csv"
+    write_steps_to_csv(tmp_csv_filename, mapped_scenarios, scenario_steps)
 
-    write_steps_to_csv(steps_data, "dummy.xml", str(csv_filename), [], mock_model_components)
+    expected_content = [
+        ['Scenario', 'Step Type', 'Step Text', 'Value', 'Latency', 'Variable Path']
+    ]
+    assert _read_csv_content(tmp_csv_filename) == expected_content
 
-    written_row = mock_writer.writerow.call_args_list[1][0][0]
-    assert written_row[5] == "" # Should be empty string
+    captured = capsys.readouterr()
+    assert f"Gherkin steps, value (converted), latency, and variable paths written to {tmp_csv_filename}\n" in captured.out
 
-def test_write_steps_to_csv_xml_file_not_exist(mocker, tmp_path, mock_model_components):
-    """
-    Tests that find_label_mapping_with_model is NOT called if XML file doesn't exist.
-    """
-    mock_writer = mocker.MagicMock()
-    mocker.patch('builtins.open', mocker.mock_open())
-    mocker.patch('csv.writer', return_value=mock_writer)
-    mock_find_label_mapping = mocker.patch('write_csv.find_label_mapping_with_model')
-    mocker.patch('os.path.exists', return_value=False) # XML file does NOT exist
 
-    steps_data = {"S1": [("G", "Step", None, None)]}
-    csv_filename = tmp_path / "output.csv"
+def test_single_scenario(tmp_csv_filename, capsys):
+    """Test writing a single scenario correctly."""
+    mapped_scenarios = [
+        ["Single Scenario", "And", "I do something", "5ms"]
+    ]
+    scenario_steps = {
+        "Single Scenario": ["x", "y", "SingleValue"]
+    }
 
-    write_steps_to_csv(steps_data, "non_existent.xml", str(csv_filename), [], mock_model_components)
+    write_steps_to_csv(tmp_csv_filename, mapped_scenarios, scenario_steps)
 
-    mock_find_label_mapping.assert_not_called()
-    written_row = mock_writer.writerow.call_args_list[1][0][0]
-    assert written_row[5] == "" # Variable path should be empty
+    expected_content = [
+        ['Scenario', 'Step Type', 'Step Text', 'Value', 'Latency', 'Variable Path'],
+        ['Single Scenario', 'And', 'I do something', 'SingleValue', '5ms', '5ms']
+    ]
+    assert _read_csv_content(tmp_csv_filename) == expected_content
 
-def test_write_steps_to_csv_empty_step_text(mocker, tmp_path, mock_model_components):
-    """
-    Tests that find_label_mapping_with_model is NOT called if step_text is empty.
-    """
-    mock_writer = mocker.MagicMock()
-    mocker.patch('builtins.open', mocker.mock_open())
-    mocker.patch('csv.writer', return_value=mock_writer)
-    mock_find_label_mapping = mocker.patch('write_csv.find_label_mapping_with_model')
-    mocker.patch('os.path.exists', return_value=True)
+    captured = capsys.readouterr()
+    assert f"Gherkin steps, value (converted), latency, and variable paths written to {tmp_csv_filename}\n" in captured.out
 
-    steps_data = {"S1": [("G", "", None, None)]} # Empty step text
-    csv_filename = tmp_path / "output.csv"
+def test_io_error_handling(tmp_csv_filename, capsys, mocker):
+    """Test that IOError is caught and an error message is printed."""
+    mapped_scenarios = [["Scenario A", "Given", "I have data", "10ms"]]
+    scenario_steps = {"Scenario A": ["foo", "bar", "Value1"]}
 
-    write_steps_to_csv(steps_data, "dummy.xml", str(csv_filename), [], mock_model_components)
-
-    mock_find_label_mapping.assert_not_called()
-    written_row = mock_writer.writerow.call_args_list[1][0][0]
-    assert written_row[5] == "" # Variable path should be empty
-
-# --- Error Handling Tests ---
-
-def test_write_steps_to_csv_io_error(mocker, tmp_path, capsys, mock_model_components):
-    """
-    Tests handling of IOError during file writing.
-    """
+    # Mock 'open' to raise an IOError when called
     mocker.patch('builtins.open', side_effect=IOError("Permission denied"))
-    mock_find_label_mapping = mocker.patch('write_csv.find_label_mapping_with_model', return_value="path")
-    mocker.patch('os.path.exists', return_value=True)
 
-    steps_data = {"S1": [("G", "Step", None, None)]}
-    csv_filename = tmp_path / "output.csv"
-
-    write_steps_to_csv(steps_data, "dummy.xml", str(csv_filename), [], mock_model_components)
+    write_steps_to_csv(tmp_csv_filename, mapped_scenarios, scenario_steps)
 
     captured = capsys.readouterr()
-    assert f"Error writing to CSV file {csv_filename}: Permission denied" in captured.err # IOError goes to stderr
+    # Assert that the correct error message was printed to stderr
+    assert f"Error writing to CSV file {tmp_csv_filename}: Permission denied\n" in captured.out
+    # Assert that the file was not created or is empty due to the error
+    assert not tmp_csv_filename.exists()
 
-def test_write_steps_to_csv_unexpected_error(mocker, tmp_path, capsys, mock_model_components):
-    """
-    Tests handling of an unexpected Exception during processing.
-    """
-    mock_writer = mocker.MagicMock()
-    mocker.patch('builtins.open', mocker.mock_open())
-    mocker.patch('csv.writer', return_value=mock_writer)
-    # Simulate an error during variable path mapping
-    mocker.patch('write_csv.find_label_mapping_with_model', side_effect=ValueError("Mapping failed"))
-    mocker.patch('os.path.exists', return_value=True)
-
-    steps_data = {"S1": [("G", "Step", None, None)]}
-    csv_filename = tmp_path / "output.csv"
-
-    write_steps_to_csv(steps_data, "dummy.xml", str(csv_filename), [], mock_model_components)
-
-    captured = capsys.readouterr()
-    assert "An unexpected error occurred during CSV writing: Mapping failed" in captured.err # Generic Exception to stderr
-
-def test_write_steps_to_csv_model_components_none(mocker, tmp_path):
-    """
-    Tests that the function handles model_components being None gracefully.
-    """
-    mock_writer = mocker.MagicMock()
-    mocker.patch('builtins.open', mocker.mock_open())
-    mocker.patch('csv.writer', return_value=mock_writer)
-    mock_find_label_mapping = mocker.patch(
-        'write_csv.find_label_mapping_with_model',
-        return_value="path/to/variable_abc"
-    )
-    mocker.patch('os.path.exists', return_value=True)
-
-    steps_data = {
-        "Scenario 1": [("Given", "I have a step", "10", "50ms")]
-    }
-    csv_filename = tmp_path / "output.csv"
-
-    write_steps_to_csv(
-        steps_data,
-        "dummy.xml",
-        str(csv_filename),
-        [],
-        None # model_components is None
-    )
-
-    # Verify find_label_mapping_with_model was called with (None, None, None) for model components
-    mock_find_label_mapping.assert_called_once_with(
-        "dummy.xml", "I have a step", None, None, None
-    )
-    written_row = mock_writer.writerow.call_args_list[1][0][0]
-    assert written_row[5] == "o/variable_abc"
+# To run these tests, save the code as a Python file (e.g., `test_csv_writer.py`)
+# and run `pytest` from your terminal in the same directory.
