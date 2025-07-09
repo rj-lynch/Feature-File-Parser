@@ -32,7 +32,6 @@ def extract_framework_labelids(xml_file: str) -> List[str]:
          root = tree.getroot()
          # Ensure the XPath matches your namespace prefix and element name
          labelids = [elem.attrib['Id'] for elem in root.findall('.//ns0:FrameworkLabel', NAMESPACES)]
-         print(labelids)
          return labelids
      except FileNotFoundError:
          print(f"Error: XML file not found at '{xml_file}'", file=sys.stderr)

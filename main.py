@@ -10,8 +10,12 @@ def main():
     Main function to parse feature files, scan xml file, predict variable path,map variables, and write results to CSV.
     """
     # 1). Scenario steps collected
-    # -- User selects .feature files and scenario_steps are returned in dictionary of scenario and steps strings
-    scenario_steps = parse_feature_file(select_feature_files())
+    # -- User selects .feature files
+    feature_files = select_feature_files()
+    # -- Scenario_steps are returned in dictionary of scenario and steps strings
+    scenario_steps = {}
+    for feature_file in feature_files:
+        scenario_steps.update(parse_feature_file(feature_file))
 
     # 2). ID dictionary created with scrubbed values to aid fuzzy matching
     # -- User selects .xml file
@@ -19,16 +23,16 @@ def main():
     # -- Scrubbed labelids list is returned
     labelids = scrub_labelids(extract_framework_labelids(xml))
     # -- Scrubbed labelids used to construct dictionary with testbench and framework labels
-    id_dict = match_testbench_to_framework_labels(xml, labelids )
-
+    id_dict = match_testbench_to_framework_labels(xml, labelids ) #######This is inefficient and needs refactoring!!!
     # 3). Predicted variable path
     # -- Attempted loading of existing model components
     model, vectorizer, label_encoder = load_model_components('signal_prediction_model.pkl', 'tfidf_vectorizer.pkl', 'label_encoder.pkl')
     # -- If model components are present use model to predict framework labels
-    if model:
-        if vectorizer:
-            if label_encoder:
-                model_matches = predict_framework_label_from_step(model, vectorizer, label_encoder, id_dict, scenario_steps)
+    if all([model, vectorizer, label_encoder]):
+        model_matches = predict_framework_label_from_step(model, vectorizer, label_encoder, id_dict, scenario_steps)
+    else:
+        print("Warning: Not all model components loaded.")
+
     # -- If user selects .json file containing labeled scenario steps
     if not model_matches:
         json = select_json_file()

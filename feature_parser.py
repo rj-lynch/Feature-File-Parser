@@ -92,7 +92,7 @@ def parse_feature_file(filename: str) -> Dict[str, List[Tuple[str, str, Optional
 
                      latency_match = LATENCY_REGEX.search(raw_step_text)
                      if latency_match:
-                           latency = int(latency_match.group(1))
+                           latency = latency_match.group(1)
                      
                      # --- Value Conversion Logic (Hex to Decimal) ---
                      value_to_store: Union[str, int, None] = value # Default to the extracted string or None
