@@ -23,7 +23,7 @@ def main():
     # -- Scrubbed labelids list is returned
     labelids = scrub_labelids(extract_framework_labelids(xml))
     # -- Scrubbed labelids used to construct dictionary with testbench and framework labels
-    id_dict = match_testbench_to_framework_labels(xml, labelids ) #######This is inefficient and needs refactoring!!!
+    id_dict = match_testbench_to_framework_labels(xml, labelids) # Inefficient
     # 3). Predicted variable path
     # -- Attempted loading of existing model components
     model, vectorizer, label_encoder = load_model_components('signal_prediction_model.pkl', 'tfidf_vectorizer.pkl', 'label_encoder.pkl')

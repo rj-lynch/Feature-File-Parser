@@ -1,8 +1,7 @@
 import tkinter as tk
 from tkinter import filedialog
 import xml.etree.ElementTree as ET
-from fuzzywuzzy import fuzz
-from fuzzywuzzy import process
+from rapidfuzz import process, fuzz
 from typing import List, Dict
 import sys
 

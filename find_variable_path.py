@@ -205,7 +205,7 @@ def predict_framework_label_from_step(
         return [] # Return empty list, not None
 
     for current_scenario in scenario_steps:
-        for step in current_scenario:
+        for step in scenario_steps[current_scenario]:
             lowercase_step = step[1].lower()
             print(f"\n[ML Predict] Processing step: '{step[1]}'")
 
