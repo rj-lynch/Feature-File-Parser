@@ -5,6 +5,11 @@ from find_variable_path import select_json_file, load_training_data, train_and_s
 from map_variables import map_variables
 from write_csv import write_steps_to_csv
 
+# Profiling imports
+import cProfile
+import pstats
+import io
+
 def main():
     """
     Main function to parse feature files, scan xml file, predict variable path,map variables, and write results to CSV.
@@ -23,7 +28,8 @@ def main():
     # -- Scrubbed labelids list is returned
     labelids = scrub_labelids(extract_framework_labelids(xml))
     # -- Scrubbed labelids used to construct dictionary with testbench and framework labels
-    id_dict = match_testbench_to_framework_labels(xml, labelids) # Inefficient
+    id_dict = match_testbench_to_framework_labels(xml, labelids) # Inefficient needs to be optimised
+
     # 3). Predicted variable path
     # -- Attempted loading of existing model components
     model, vectorizer, label_encoder = load_model_components('signal_prediction_model.pkl', 'tfidf_vectorizer.pkl', 'label_encoder.pkl')
@@ -31,16 +37,12 @@ def main():
     if all([model, vectorizer, label_encoder]):
         model_matches = predict_framework_label_from_step(model, vectorizer, label_encoder, id_dict, scenario_steps)
     else:
-        print("Warning: Not all model components loaded.")
-
-    # -- If user selects .json file containing labeled scenario steps
-    if not model_matches:
+        print("Warning: Not all model components loaded. Training new model...")
         json = select_json_file()
-    # -- json data loaded 
         data = load_training_data(json)
-    # -- Use json data to train model
         train_and_save_model(data, 'signal_prediction_model.pkl', 'tfidf_vectorizer.pkl', 'label_encoder.pkl')
-    # -- Use trained model to find model matches
+        # Reload model components after training
+        model, vectorizer, label_encoder = load_model_components('signal_prediction_model.pkl', 'tfidf_vectorizer.pkl', 'label_encoder.pkl')
         model_matches = predict_framework_label_from_step(model, vectorizer, label_encoder, id_dict, scenario_steps)
 
     # 4). Variables mapped to test steps
@@ -49,8 +51,17 @@ def main():
 
     # 5). Write Scenario, step type, step text, value, latency and variable path to .csv
     # -- Write to .csv file hardcoded as gherkin_steps_with_paths.csv
-        write_steps_to_csv("gherkin_steps_with_paths.csv", mapped_scenarios, mapped_scenarios, scenario_steps)
+        write_steps_to_csv("gherkin_steps_with_paths.csv", mapped_scenarios, scenario_steps)
 
 # Execute script directly
 if __name__ == "__main__":
+    pr = cProfile.Profile()
+    pr.enable()
     main()
+    pr.disable()
+    s = io.StringIO()
+    sortby = 'cumulative'
+    ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+    ps.print_stats(30)  # Show top 30 lines
+    print("\n--- Profiling Results (Top 30 by cumulative time) ---\n")
+    print(s.getvalue())

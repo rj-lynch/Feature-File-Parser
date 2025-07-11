@@ -7,15 +7,16 @@ def map_variables(matches_dict, model_matches, scenarios):
     framework_labels_from_xml = list(matches_dict.keys())
     mapped_scenarios = []
     for scenario in scenarios:
-        for step in scenario:
-            step_text = step[1]
-            alias = step[0]
-            mapping_from_framework_ids = process.extractOne(step_text, framework_labels_from_xml, scorer=fuzz.token_set_ratio)
-            if mapping_from_framework_ids != None:
-                mapped_scenarios.append((scenario, alias, step_text, mapping_from_framework_ids))
-            else:
-                for model_match in model_matches:
-                    if step_text in model_match[1]:
-                        mapping_from_model = model_match[2]
-                        mapped_scenarios.append((scenario, alias, step_text, mapping_from_model))
+            steps = scenarios[scenario]
+            for step in steps:
+                step_type = step[0]
+                step_text = step[1] 
+                mapping_from_framework_ids = process.extractOne(step_text, framework_labels_from_xml, scorer=fuzz.token_set_ratio)
+                if mapping_from_framework_ids != None:
+                    mapped_scenarios.append((scenario, step_type, step_text, mapping_from_framework_ids[0]))
+                else:
+                    for model_match in model_matches:
+                        if step_text in model_match[1]:
+                            mapping_from_model = model_match[2]
+                            mapped_scenarios.append((scenario, step_type, step_text, mapping_from_model))
     return mapped_scenarios

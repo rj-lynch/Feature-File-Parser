@@ -1,9 +1,4 @@
 import csv
-import os
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import SGDClassifier
-from sklearn.preprocessing import LabelEncoder
-from typing import List, Dict, Tuple, Optional, Union
 
 def write_steps_to_csv(
     csv_filename,
@@ -22,11 +17,22 @@ def write_steps_to_csv(
             # Write header row
             writer.writerow(['Scenario', 'Step Type', 'Step Text', 'Value', 'Latency', 'Variable Path'])
 
-            # Iterate through each scenario and its steps
             for mapped_scenario in mapped_scenarios:
-                    scenario_info = scenario_steps[mapped_scenario[0]]
-                    # Write the data row to the CSV file
-                    writer.writerow([mapped_scenario[0], mapped_scenario[1], mapped_scenario[2],scenario_info[2] , mapped_scenario[3], mapped_scenario[3]])
+                    scenario_steps[mapped_scenario[0]].extend(mapped_scenario[3])
+
+            # Iterate through each scenario and its steps
+            for scenario in scenario_steps:
+                 steps = scenario_steps[scenario]
+                 for step in steps:
+                      step_type = step[0]
+                      step_text = step[1]
+                      value = step[2]
+                      latency = step[3]
+                      variable_path = step[4] if len(step) > 4 else None
+                      writer.writerow([scenario, step_type, step_text, value , latency, variable_path])
+
+            # Iterate through each scenario and its steps
+            
 
         # If the loop completes without errors, print success message
         print(f"Gherkin steps, value (converted), latency, and variable paths written to {csv_filename}")

@@ -96,29 +96,39 @@ def match_testbench_to_framework_labels(xml_file: str, framework_labels: List[st
         # Find all TestbenchLabel elements
         raw_testbench_ids = [elem.attrib['Id'] for elem in root.findall('.//ns0:TestbenchLabel', NAMESPACES)]
 
+        # Preprocess testbench IDs: remove '()://', lowercase
+        processed_testbench_ids = [(tb_id.replace("()://", ""), tb_id.replace("()://", "").lower()) for tb_id in raw_testbench_ids]
+
         matches_dict = {}
-        # Only proceed with fuzzy matching if there are framework labels to compare against
         if not framework_labels:
-            print("Warning: 'framework_labels' list is empty. Cannot perform fuzzy matching.")
+            print("Warning: 'framework_labels' list is empty. Cannot perform matching.")
             return {}
 
-        for testbench_id_raw in raw_testbench_ids:
-            # 1. This is the ID that will be the VALUE in the final dict (after "()://" removal)
-            testbench_id_for_dict_value = testbench_id_raw.replace("()://", "")
+        # First, try exact matches
+        framework_set = set(framework_labels)
+        used_testbench = set()
+        for fw_label in framework_labels:
+            # Find exact match in processed testbench IDs
+            for tb_value, tb_lower in processed_testbench_ids:
+                if fw_label == tb_lower:
+                    matches_dict[fw_label] = tb_value
+                    used_testbench.add(tb_value)
+                    break
 
-            # 2. This is the ID used for fuzzy comparison (after "()://" removal AND lowercasing)
-            # It's crucial that this matches the case and scrubbing of `framework_labels`
-            testbench_id_for_fuzzy_matching = testbench_id_for_dict_value.lower()
+        # For unmatched framework labels, use fuzzy matching
+        unmatched_fw_labels = [fw for fw in framework_labels if fw not in matches_dict]
+        available_tb = [tb_lower for tb_value, tb_lower in processed_testbench_ids if tb_value not in used_testbench]
+        tb_map = {tb_lower: tb_value for tb_value, tb_lower in processed_testbench_ids}
 
-            result = process.extractOne(testbench_id_for_fuzzy_matching, framework_labels, scorer=fuzz.token_set_ratio)
-
-            # Crucial check: process.extractOne returns None if no choices are provided
-            # or if no sufficiently good match is found (e.g., if you set a very high cutoff, not applicable here)
+        for fw_label in unmatched_fw_labels:
+            # Only fuzzy match against unused testbench labels
+            result = process.extractOne(fw_label, available_tb, scorer=fuzz.token_set_ratio)
             if result is not None:
-                # result[0] is the matched string from framework_labels (which are already scrubbed and lowercased)
-                matches_dict[result[0]] = testbench_id_for_dict_value
+                tb_lower = result[0]
+                matches_dict[fw_label] = tb_map[tb_lower]
+                used_testbench.add(tb_map[tb_lower])
             else:
-                print(f"Warning: No suitable framework label found for '{testbench_id_for_fuzzy_matching}'. Skipping.")
+                print(f"Warning: No suitable testbench label found for '{fw_label}'. Skipping.")
 
         return matches_dict
 
