@@ -47,11 +47,11 @@ def main():
 
     # 4). Variables mapped to test steps
     # -- Map fuzzy match variable or ML predicted variable as backup
-        mapped_scenarios = map_variables(id_dict, model_matches, scenario_steps)
+    mapped_scenarios = map_variables(id_dict, model_matches, scenario_steps)
 
     # 5). Write Scenario, step type, step text, value, latency and variable path to .csv
     # -- Write to .csv file hardcoded as gherkin_steps_with_paths.csv
-        write_steps_to_csv("gherkin_steps_with_paths.csv", mapped_scenarios, scenario_steps)
+    write_steps_to_csv("gherkin_steps_with_paths.csv", mapped_scenarios, scenario_steps)
 
 # Execute script directly
 if __name__ == "__main__":
