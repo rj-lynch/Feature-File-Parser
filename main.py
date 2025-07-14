@@ -4,8 +4,6 @@ from scan_xml import select_xml_file, extract_framework_labelids, scrub_labelids
 from find_variable_path import select_json_file, load_training_data, train_and_save_model, load_model_components, predict_framework_label_from_step
 from map_variables import map_variables
 from write_csv import write_steps_to_csv
-
-# Profiling imports
 import cProfile
 import pstats
 import io

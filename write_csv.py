@@ -17,14 +17,21 @@ def write_steps_to_csv(
             # Write header row
             writer.writerow(['Scenario', 'Step Type', 'Step Text', 'Value', 'Latency', 'Variable Path'])
 
-            # Write each mapped_scenario directly to the CSV
+            # Write each mapped_scenario to the CSV, sourcing value and latency from scenario_steps
             for mapped_scenario in mapped_scenarios:
                 scenario = mapped_scenario[0]
                 step_type = mapped_scenario[1]
                 step_text = mapped_scenario[2]
-                value = mapped_scenario[3]
-                latency = mapped_scenario[4] if len(mapped_scenario) > 4 else None
-                variable_path = mapped_scenario[5] if len(mapped_scenario) > 5 else None
+                variable_path = mapped_scenario[-1] if len(mapped_scenario) > 3 else None
+
+                # Find the matching step in scenario_steps to get value and latency
+                value, latency = None, None
+                if scenario in scenario_steps:
+                    for step in scenario_steps[scenario]:
+                        if step[0] == step_type and step[1] == step_text:
+                            value = step[2] if len(step) > 2 else None
+                            latency = step[3] if len(step) > 3 else None
+                            break
                 writer.writerow([scenario, step_type, step_text, value, latency, variable_path])
 
             # Iterate through each scenario and its steps
