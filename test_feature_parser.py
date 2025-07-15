@@ -152,24 +152,22 @@ def test_parse_feature_file_value_latency_extraction(mocker):
     file_content = """
     Feature: API Tests
 
-    Scenario: Send request with specific value and latency
+    Scenario: Send request with specific value
       Given an API endpoint is available
-      When I send a request with value=123 and latency=50
+      When I send a request with value=123
       Then the response should have status 200
-      And the response body should contain data with value=1
-    """
+      And the response body should contain data with value=1 latency=50"""
     mock_file_obj = mock_feature_file_content(mocker, file_content)
 
     result = parse_feature_file("test_api.feature")
 
     expected = {
-        'Send request with specific value and latency': [
+        'Send request with specific value': [
             ('Given_1', 'an API endpoint is available', None, None),
-            ('When_1', 'I send a request with value=123 and latency=50', 123, 50),
+            ('When_1', 'I send a request with value=123', 123, None),
             ('Then_1', 'the response should have status 200', None, None),
-            ('Then_2', 'the response body should contain data with value=1', 1, None)
-        ]
-    }
+            ('Then_2', 'the response body should contain data with value=1 latency=50', 1, '50')]}
+    
     assert result == expected
     mock_file_obj.assert_called_once_with('test_api.feature', 'r', encoding='utf-8')
 

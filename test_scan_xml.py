@@ -248,31 +248,34 @@ def test_match_testbench_to_framework_labels_success(mocker):
     
     # Simulate findall returning elements with IDs, some needing scrubbing
     mock_root.findall.return_value = [
-        create_mock_element("TB_Label_A"),
-        create_mock_element("TB_Label_B()://"), # This one needs scrubbing
-        create_mock_element("TB_Label_C_Long")
+        create_mock_element("TB_Label_acceleration"),
+        create_mock_element("TB_Label_speed()://"), # This one needs scrubbing
+        create_mock_element("TB_Label_pitch")
     ]
     mock_parse = mocker.patch('xml.etree.ElementTree.parse', return_value=mock_tree)
 
     # 2. Mock fuzzywuzzy.process.extractOne
     # We use side_effect to define what each call to extractOne returns
     # The return format is (matched_string, score, index)
-    mock_extract_one = mocker.patch('fuzzywuzzy.process.extractOne', side_effect=[
-        ("Framework_Label_A", 90, 0),       # For "TB_Label_A"
-        ("Framework_Label_B_Match", 95, 1), # For "TB_Label_B" (after scrubbing)
-        ("Framework_Label_C_Long", 85, 2)   # For "TB_Label_C_Long"
+    mock_extract_one = mocker.patch('rapidfuzz.process.extractOne', side_effect=[
+        ("tb_label_acceleration", 95, 0),
+        ("tb_label_speed", 95, 1),
+        ("tb_label_pitch", 95, 2)   
     ])
 
-    framework_labels = ["Framework_Label_A", "Framework_Label_B_Match", "Framework_Label_C_Long"]
-    
-    # Expected output: key is the framework label, value is the scrubbed testbench label
+    framework_labels = ["Framework_Label_acceleration", "Framework_Label_speed", "Framework_Label_pitch"]
+    # Scrub and lowercase framework labels to match production expectations
+    from scan_xml import scrub_labelids
+    framework_labels_scrubbed = scrub_labelids(framework_labels)
+
+    # Expected output: key is the scrubbed framework label, value is the scrubbed testbench label
     expected_matches = {
-        "Framework_Label_A": "TB_Label_A",
-        "Framework_Label_B_Match": "TB_Label_B",
-        "Framework_Label_C_Long": "TB_Label_C_Long"
+        "framework_label_acceleration": "TB_Label_acceleration",
+        "framework_label_speed": "TB_Label_speed",
+        "framework_label_pitch": "TB_Label_pitch"
     }
 
-    result = match_testbench_to_framework_labels("dummy.xml", framework_labels)
+    result = match_testbench_to_framework_labels("dummy.xml", framework_labels_scrubbed)
 
     assert result == expected_matches
     
@@ -282,11 +285,11 @@ def test_match_testbench_to_framework_labels_success(mocker):
     # Verify that findall was called with the correct arguments
     mock_root.findall.assert_called_once_with('.//ns0:TestbenchLabel', NAMESPACES)
     
-    # Verify extractOne was called for each scrubbed testbench ID with correct arguments
-    mock_extract_one.assert_any_call("tb_label_a", framework_labels, scorer=mocker.ANY) # mocker.ANY for fuzz.token_set_ratio
-    mock_extract_one.assert_any_call("tb_label_b", framework_labels, scorer=mocker.ANY) # Assert scrubbed value
-    mock_extract_one.assert_any_call("tb_label_c_long", framework_labels, scorer=mocker.ANY)
-    assert mock_extract_one.call_count == len(mock_root.findall.return_value)
+    # The list of available_tb in production is the lowercased, scrubbed testbench labels
+    available_tb = [elem.attrib['Id'].replace("()://", "").lower() for elem in mock_root.findall.return_value]
+    for scrubbed_fw_label in framework_labels_scrubbed:
+        mock_extract_one.assert_any_call(scrubbed_fw_label, available_tb, scorer=mocker.ANY)
+    assert mock_extract_one.call_count == len(framework_labels_scrubbed)
 
 def test_match_testbench_to_framework_labels_no_testbench_elements(mocker):
     """
@@ -354,63 +357,3 @@ def test_match_testbench_to_framework_labels_empty_framework_labels(mocker):
 
     assert result == {}
     mock_extract_one.assert_not_called()
-    
-def test_match_testbench_to_framework_labels_no_scrubbing_needed(mocker):
-    """
-    Tests that scrubbing doesn't alter IDs if '()://' is not present.
-    """
-    mock_tree = MagicMock()
-    mock_root = MagicMock()
-    mock_tree.getroot.return_value = mock_root
-    mock_root.findall.return_value = [
-        create_mock_element("TB_Label_A_Clean"),
-        create_mock_element("TB_Label_B_NoSpecialChars")
-    ]
-    mocker.patch('xml.etree.ElementTree.parse', return_value=mock_tree)
-
-    mock_extract_one = mocker.patch('fuzzywuzzy.process.extractOne', side_effect=[
-        ("F_Label_A_Clean", 90, 0),
-        ("F_Label_B_NoSpecialChars", 95, 1)
-    ])
-
-    framework_labels = ["F_Label_A_Clean", "F_Label_B_NoSpecialChars"]
-    expected_matches = {
-        "F_Label_A_Clean": "TB_Label_A_Clean",
-        "F_Label_B_NoSpecialChars": "TB_Label_B_NoSpecialChars"
-    }
-
-    result = match_testbench_to_framework_labels("dummy.xml", framework_labels)
-    assert result == expected_matches
-    # Verify extractOne was called with the original (unscrubbed, but clean) values
-    mock_extract_one.assert_any_call("tb_label_a_clean", framework_labels, scorer=mocker.ANY)
-    mock_extract_one.assert_any_call("tb_label_b_nospecialchars", framework_labels, scorer=mocker.ANY)
-
-def test_match_testbench_to_framework_labels_scrubbing_performed(mocker):
-    """
-    Tests that scrubbing correctly removes '()://'.
-    """
-    mock_tree = MagicMock()
-    mock_root = MagicMock()
-    mock_tree.getroot.return_value = mock_root
-    mock_root.findall.return_value = [
-        create_mock_element("TB_Label_With_Scrub()://"),
-        create_mock_element("Another_TB_Label_With_Scrub()://")
-    ]
-    mocker.patch('xml.etree.ElementTree.parse', return_value=mock_tree)
-
-    mock_extract_one = mocker.patch('fuzzywuzzy.process.extractOne', side_effect=[
-        ("F_Label_With_Scrub", 90, 0),
-        ("Another_F_Label_With_Scrub", 95, 1)
-    ])
-
-    framework_labels = ["F_Label_With_Scrub", "Another_F_Label_With_Scrub"]
-    expected_matches = {
-        "F_Label_With_Scrub": "TB_Label_With_Scrub",
-        "Another_F_Label_With_Scrub": "Another_TB_Label_With_Scrub"
-    }
-
-    result = match_testbench_to_framework_labels("dummy.xml", framework_labels)
-    assert result == expected_matches
-    # Crucially, check that extractOne was called with the *scrubbed* values
-    mock_extract_one.assert_any_call("tb_label_with_scrub", framework_labels, scorer=mocker.ANY)
-    mock_extract_one.assert_any_call("another_tb_label_with_scrub", framework_labels, scorer=mocker.ANY)

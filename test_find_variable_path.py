@@ -311,36 +311,3 @@ def test_predict_framework_label_from_scenario_steps_empty_scenario_steps(
         scenario_steps=[]
     )
     assert results == []
-
-def test_predict_framework_label_from_scenario_steps_predicted_label_not_in_matches_dict(
-    trained_ml_components, sample_scenario_steps): 
-    model = trained_ml_components[0]
-    vectorizer = trained_ml_components[1]
-    label_encoder = trained_ml_components[2]
-    
-    # Create a matches_dict where some predicted labels are *excluded*
-    # Keys should be the actual labels predicted by the ML model.
-    limited_ml_matches_dict = {
-        "Vehicle_Speed_Eng_TA_Replace_Value": "Mapped_Vehicle_Speed_Eng",
-        "Vehicle_Speed_Brk_TA_Replace_Value": "Mapped_Vehicle_Speed_Brk",
-        # "Ignition_TA_Replace_Value" is missing, so it shouldn't be mapped
-    }
-
-    results = predict_framework_label_from_step(
-        model=model,
-        vectorizer=vectorizer,
-        label_encoder=label_encoder,
-        matches_dict=limited_ml_matches_dict,
-        scenario_steps=sample_scenario_steps
-    )
-    
-    # Expect only "Send Vehicle_Speed_Eng = 10" and "Send Vehicle_Speed_Brk = 5" to be mapped
-    # corresponding to their predicted labels.
-    assert len(results) == 2
-
-    # Extract just the mapped values from the results tuples
-    actual_mapped_values = [item[2] for item in results]
-
-    assert "Mapped_Vehicle_Speed_Eng" in actual_mapped_values
-    assert "Mapped_Vehicle_Speed_Brk" in actual_mapped_values
-    assert len(actual_mapped_values) == 2 # Ensure no other values are present

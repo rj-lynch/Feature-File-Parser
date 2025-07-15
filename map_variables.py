@@ -12,8 +12,15 @@ def map_variables(matches_dict, model_matches, scenarios):
                 step_type = step[0]
                 step_text = step[1] 
                 mapping_from_framework_ids = process.extractOne(step_text, framework_labels_from_xml, scorer=fuzz.token_set_ratio)
-                if mapping_from_framework_ids != None:
-                    mapped_scenarios.append((scenario, step_type, step_text, mapping_from_framework_ids[0]))
+                if mapping_from_framework_ids is not None:
+                    framework_label = mapping_from_framework_ids[0]
+                    # Fuzzy search for the best match in matches_dict keys
+                    best_match = process.extractOne(framework_label, matches_dict.keys(), scorer=fuzz.token_set_ratio)
+                    if best_match:
+                        testbench_id = matches_dict[best_match[0]]
+                    else:
+                        testbench_id = None
+                    mapped_scenarios.append((scenario, step_type, step_text, testbench_id))
                 else:
                     for model_match in model_matches:
                         if step_text in model_match[1]:
